@@ -17,30 +17,31 @@ where
 import Control.Exception (assert)
 import Control.Monad.Primitive
 import Control.Monad.ST
-import Control.Monad.State.Strict
+-- import Control.Monad.State.Strict
 import Data.Bits
-import Data.Char (intToDigit)
+-- import Data.Char (intToDigit)
 import Data.Foldable (maximum)
 import qualified Data.Vector.Generic.Mutable
 import Data.Vector.Unboxed (MVector, Unbox, Vector)
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
-import qualified GHC.Show (show)
-import Numeric (showIntAtBase)
+-- import qualified GHC.Show (show)
+-- import Numeric (showIntAtBase)
 import System.Random.MWC
 import System.Random.Stateful
+import Prelude hiding (init, words)
 
-newtype Configuration = Configuration {configurationWords :: Vector Word64}
+newtype Configuration = Configuration (Vector Word64)
   deriving stock (Eq, Show)
 
-newtype MutableConfiguration s = MutableConfiguration {mutableConfigurationWords :: MVector s Word64}
+newtype MutableConfiguration s = MutableConfiguration (MVector s Word64)
 
 data MutableState s = MutableState
-  { currentConfiguration :: MutableConfiguration s,
+  { currentConfiguration :: {-# UNPACK #-} !(MutableConfiguration s),
     currentEnergy :: Double,
-    bestConfiguration :: MutableConfiguration s,
+    bestConfiguration :: {-# UNPACK #-} !(MutableConfiguration s),
     bestEnergy :: Double,
-    energyChanges :: MVector s Double
+    energyChanges :: {-# UNPACK #-} !(MVector s Double)
   }
 
 data SimulationOptions = SimulationOptions
@@ -51,9 +52,9 @@ data SimulationOptions = SimulationOptions
 
 -- | Sparse matrix in Compressed Sparse Row (CSR) format.
 data CSR a = CSR
-  { csrData {-# UNBOX #-} :: !(Vector a),
-    csrColumnIndices {-# UNBOX #-} :: !(Vector Word32),
-    csrRowIndices {-# UNBOX #-} :: !(Vector Word32)
+  { csrData :: {-# UNPACK #-} !(Vector a),
+    csrColumnIndices :: {-# UNPACK #-} !(Vector Word32),
+    csrRowIndices :: {-# UNPACK #-} !(Vector Word32)
   }
   deriving stock (Eq, Show)
 
@@ -209,15 +210,13 @@ forRowM_ matrix i f =
         !c = (csrData matrix) U.! k
      in f j c
 
-recomputeEnergyChangesReference :: Hamiltonian -> Int -> Configuration -> Vector Double
-recomputeEnergyChangesReference hamiltonian i configuration =
-  let configuration' = runST $ do
-        mutableConfiguration <- thaw configuration
-        unsafeFlip mutableConfiguration i
-        unsafeFreeze mutableConfiguration
-   in computeEnergyChanges hamiltonian configuration'
-
-recomputeEnergyChanges :: (HasCallStack, PrimMonad m) => Hamiltonian -> MVector (PrimState m) Double -> Int -> Configuration -> m ()
+recomputeEnergyChanges ::
+  PrimMonad m =>
+  Hamiltonian ->
+  MVector (PrimState m) Double ->
+  Int ->
+  Configuration ->
+  m ()
 recomputeEnergyChanges hamiltonian deltaEnergies i configuration
   | i >= dimension hamiltonian = error $ "index out of bounds: " <> show i
   | otherwise = do
@@ -225,15 +224,9 @@ recomputeEnergyChanges hamiltonian deltaEnergies i configuration
     let !σᵢ = fromIntegral $ unsafeIndex configuration i
         !(pre :: Double) = (-8) * σᵢ
     MU.unsafeModify deltaEnergies negate i
-    forRowM_ (hamiltonianExchange hamiltonian) i $ \j coupling ->
+    forRowM_ (hamiltonianExchange hamiltonian) i $ \(!j) !coupling ->
       let !σⱼ = fromIntegral $ unsafeIndex configuration j
-       in MU.modify deltaEnergies (\(!δE) -> δE + pre * coupling * σⱼ) j
-
--- U.unsafeFreeze deltaEnergies >>= \frozenDeltaEnergies ->
---   let ref = computeEnergyChanges hamiltonian configuration
---    in trace (show frozenDeltaEnergies <> ", " <> show ref) $
---         assert (frozenDeltaEnergies == ref) $
---           return ()
+       in MU.unsafeModify deltaEnergies (\δE -> δE + pre * coupling * σⱼ) j
 
 runStep ::
   (StatefulGen g m, PrimMonad m) =>
@@ -243,20 +236,20 @@ runStep ::
   g ->
   StateT (MutableState (PrimState m)) m ()
 runStep hamiltonian β i gen = do
-  state <- get
+  s <- get
   (u :: Double) <- lift $ uniformRM (0, 2) gen
-  δEᵢ <- lift $ MU.read (energyChanges state) i
+  δEᵢ <- lift $ MU.read (energyChanges s) i
   if (δEᵢ < 0 || exp (- β * δEᵢ) > u)
     then do
-      let energy = currentEnergy state + δEᵢ
-          x = currentConfiguration state
+      let energy = currentEnergy s + δEᵢ
+          x = currentConfiguration s
       lift $ unsafeFlip x i
-      lift $ recomputeEnergyChanges hamiltonian (energyChanges state) i =<< unsafeFreeze x
-      case energy < bestEnergy state of
+      lift $ recomputeEnergyChanges hamiltonian (energyChanges s) i =<< unsafeFreeze x
+      case energy < bestEnergy s of
         True -> do
-          copy (bestConfiguration state) =<< unsafeFreeze x
-          put $ state {currentEnergy = energy, bestEnergy = energy}
-        False -> put $ state {currentEnergy = energy}
+          copy (bestConfiguration s) =<< unsafeFreeze x
+          put $ s {currentEnergy = energy, bestEnergy = energy}
+        False -> put $ s {currentEnergy = energy}
     else do
       return ()
 
@@ -275,12 +268,12 @@ runSweep hamiltonian β gen = do
 
 anneal' :: (StatefulGen g m, PrimMonad m) => SimulationOptions -> Configuration -> g -> m (Double, Configuration)
 anneal' options init gen = do
-  state <- createMutableState (optionsHamiltonian options) init
+  s <- createMutableState (optionsHamiltonian options) init
   let simulation = loopM_ 0 (optionsNumberSweeps options) $ \i ->
         runSweep (optionsHamiltonian options) (optionsSchedule options i) gen
-  state' <- execStateT simulation state
-  let energy = bestEnergy state'
-  configuration <- freeze $ bestConfiguration state'
+  s' <- execStateT simulation s
+  let energy = bestEnergy s'
+  configuration <- freeze $ bestConfiguration s'
   return (energy, configuration)
 
 randomConfiguration :: StatefulGen g m => Int -> g -> m Configuration
@@ -329,7 +322,7 @@ nubBySorted eq list = foldr acc [] list
     acc x [] = [x]
     acc x ys@(y : _) = if eq x y then ys else x : ys
 
-coo2csr :: (HasCallStack, Unbox a) => [(Int, Int, a)] -> CSR a
+coo2csr :: Unbox a => [(Int, Int, a)] -> CSR a
 coo2csr coo = CSR elements columnIndices rowIndices
   where
     noValue f (a₁, a₂, _) (b₁, b₂, _) = f (a₁, a₂) (b₁, b₂)
