@@ -48,12 +48,17 @@ library
   hs-source-dirs:      src
   exposed-modules:     IsingGroundState
                      , Physics.Ising
-  build-depends:       hdf5-hs
-                     , vector
+  build-depends:       vector
                      , primitive
                      , mtl
                      , random >= 1.2.0
                      , mwc-random
+                     , text
+                     -- , ghc-dump-core
+                     -- , ghc-dump-util
+                     -- , inline-c
+  ghc-options: -msse -msse2 -msse3 -msse4 -fllvm -funbox-strict-fields -fspecialise-aggressively
+  -- ghc-options: -fplugin GhcDump.Plugin
 
 executable ising-ground-state
   import:              common-options
@@ -61,9 +66,14 @@ executable ising-ground-state
   main-is:             Main.hs
   build-depends:       ising-ground-state
                      , vector
+                     , text
+                     , mwc-random
+                     -- , ghc-dump-core
   ghc-options:         -threaded
                        -rtsopts
                        -with-rtsopts=-N
+                       -msse -msse2 -msse3 -msse4
+                       -fllvm -funbox-strict-fields -fspecialise-aggressively
 
 test-suite ising-ground-state-test
   import:              common-options

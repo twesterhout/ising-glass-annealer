@@ -22,7 +22,7 @@ main = hspec $ do
               [5, 1, 5, 2, 1, 2]
               [1, 2, 0, 2, 0, 1]
               [0, 2, 4, 6]
-          h = Hamiltonian matrix
+          h = Hamiltonian matrix 0
           c x = Configuration $ U.singleton x
       computeEnergy h (c 0) `shouldBe` 16
       computeEnergy h (c 1) `shouldBe` (-8)
@@ -54,15 +54,34 @@ main = hspec $ do
           graph₂ = runST $ initialize (U.singleton 2) >>= graphErdosRenyi 3 1.0
       graph₁ `shouldBe` []
       graph₂ `shouldBe` [(0, 1), (0, 2), (1, 2)]
+  -- describe "computeEnergyChanges" $ do
+  --   it "works" $ do
+  --     h <- loadFromCSV "kagome_12.csv"
+  --     isSymmetric (hamiltonianExchange h) `shouldBe` True
+  --     forM_ [5] $ \x -> do
+  --       let c = Configuration (U.singleton x)
+  --       computeEnergyChanges h c `shouldBe` computeEnergyChangesReference h c
+
   describe "anneal" $ do
     it "solves systems of 0 spins" $ do
       let (eComputed, eExpected) = runST $ do
             gen <- initialize (U.singleton 46)
-            h <- randomHamiltonian 16 0.8 gen
+            h <- randomHamiltonian 10 0.8 gen
             let sweeps = 1000
                 options = SimulationOptions h (linearSchedule 0.1 3.0 sweeps) sweeps
                 (e', _) = bruteForceSolve h
-            (e, _) <- anneal options gen
-            return (e, e')
+            (_, _, _, history) <- anneal options gen
+            return (U.last history, e')
       print (eComputed, eExpected)
       roundTo eComputed 7 `shouldBe` roundTo eExpected 7
+
+    it "solves Kagome 12" $ do
+      h <- loadFromCSV "kagome_12.csv"
+      let e = runST $ do
+            gen <- initialize (U.singleton 46)
+            let sweeps = 1000
+                options = SimulationOptions h (exponentialSchedule 0.1 100.0 sweeps) sweeps
+            (_, _, _, history) <- anneal options gen
+            return (U.last history)
+      -- roundTo (fst (bruteForceSolve h)) 7 `shouldBe` (-8)
+      roundTo e 7 `shouldBe` (-8)
