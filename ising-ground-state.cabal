@@ -42,13 +42,16 @@ common common-options
                        OverloadedStrings
                        FlexibleContexts
                        DerivingVia
+                       GeneralizedNewtypeDeriving
 
 library
   import:              common-options
   hs-source-dirs:      src
   exposed-modules:     IsingGroundState
                      , Physics.Ising
+  c-sources:           cbits/helpers.c
   build-depends:       vector
+                     , deepseq
                      , primitive
                      , mtl
                      , random >= 1.2.0
@@ -57,7 +60,7 @@ library
                      -- , ghc-dump-core
                      -- , ghc-dump-util
                      -- , inline-c
-  ghc-options: -msse -msse2 -msse3 -msse4 -fllvm -funbox-strict-fields -fspecialise-aggressively
+  ghc-options: -fspecialise-aggressively
   -- ghc-options: -fplugin GhcDump.Plugin
 
 executable ising-ground-state
@@ -68,12 +71,12 @@ executable ising-ground-state
                      , vector
                      , text
                      , mwc-random
+                     , primitive
                      -- , ghc-dump-core
   ghc-options:         -threaded
                        -rtsopts
                        -with-rtsopts=-N
-                       -msse -msse2 -msse3 -msse4
-                       -fllvm -funbox-strict-fields -fspecialise-aggressively
+                       -fspecialise-aggressively
 
 test-suite ising-ground-state-test
   import:              common-options
