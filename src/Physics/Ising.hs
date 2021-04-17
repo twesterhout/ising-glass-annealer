@@ -101,6 +101,38 @@ unsafeFlip !(MutableConfiguration v) !i = do
     !rest = i `mod` 64
 {-# INLINE unsafeFlip #-}
 
+newtype CongruentialState s = MutablePrimArray s Word32
+
+nextWord :: PrimMonad m => CongruentialState s -> m Word32
+nextWord (CongruentialState s) = do
+  w <- next <$> readPrimArray s 0
+  writePrimArray s 0 w
+  return w
+  where
+    next !x = 69069 * x + 1234567
+{-# INLINE nextWord #-}
+
+-- uniformIntR :: PrimMonad m => Int -> CongruentialState s -> m Int
+
+-- constexpr auto random_bounded(uint32_t const range, RandomGenerator& g) noexcept -> uint32_t
+-- {
+--     static_assert(noexcept(std::declval<RandomGenerator&>()()), TCM_STATIC_ASSERT_BUG_MESSAGE);
+--     auto const random32 = [&g]() -> uint64_t {
+--         static_assert(std::is_same_v<RandomGenerator::result_type, uint64_t>);
+--         return g() & uint64_t{0xFFFFFFFF};
+--     };
+--     auto multiresult = random32() * range;
+--     auto leftover    = static_cast<uint32_t>(multiresult);
+--     if (leftover < range) {
+--         auto const threshold = -range % range;
+--         while (leftover < threshold) {
+--             multiresult = random32() * range;
+--             leftover    = static_cast<uint32_t>(multiresult);
+--         }
+--     }
+--     return multiresult >> 32;
+-- }
+
 -- | Simulation state
 data MutableState s = MutableState
   { currentConfiguration :: {-# UNPACK #-} !(MutableConfiguration s),
@@ -322,15 +354,15 @@ unsafeSwap v !i !j = do
 {-# INLINE unsafeSwap #-}
 
 shuffleVector :: (StatefulGen g m, PrimMonad m) => MutablePrimArray (PrimState m) Int -> g -> m ()
-shuffleVector !v !gen = go (sizeofMutablePrimArray v - 1)
+shuffleVector !v !gen = go n
   where
+    !n = sizeofMutablePrimArray v - 1
     go !j
       | j > 0 = do
-        !k <- {-# SCC "uniform" #-} uniformRM (0, j) gen
-        unsafeSwap v j k
+        unsafeSwap v j =<< {-# SCC "uniform" #-} uniformRM (0, j) gen
         go (j - 1)
       | otherwise = return ()
-    {-# INLINE go #-}
+{-# INLINEABLE shuffleVector #-}
 {-# SCC shuffleVector #-}
 
 -- randomPermutation :: (HasCallStack, PrimMonad m, StatefulGen g m) => Int -> g -> m (Vector Int)
@@ -469,14 +501,19 @@ recomputeEnergyChanges hamiltonian deltaEnergies i bits = do
 --   assert (allClose frozenDeltaEnergies (computeEnergyChanges hamiltonian configuration)) $
 --     return ()
 
-shouldAccept :: StatefulGen g m => Double -> Double -> g -> m Bool
-shouldAccept !β !δEᵢ !gen
+shouldAccept :: StatefulGen g m => g -> Double -> Double -> m Bool
+shouldAccept gen β !δEᵢ
   | δEᵢ >= 0 =
-    let !p = {-# SCC "exp" #-} exp (- β * δEᵢ)
+    let !p = exp (- β * δEᵢ)
      in (p >) <$> force <$> uniformRM (0, 2) gen
   | otherwise = return True
--- return $ p > u
 {-# INLINE shouldAccept #-}
+
+updateBest :: PrimMonad m => MutableState (PrimState m) -> Int -> MutableConfiguration (PrimState m) -> Double -> m ()
+updateBest s i x e = do
+  copy (bestConfiguration s) x
+  writePrimArray (bestEnergyHistory s) i e
+{-# INLINE updateBest #-}
 
 runStep ::
   (StatefulGen g m, PrimBase m) =>
@@ -488,22 +525,17 @@ runStep ::
   MutableState (PrimState m) ->
   m ()
 runStep !hamiltonian !β !sweep !i !gen !s = do
-  let !deltaEnergies = force $ energyChanges s
-  !accept <- do
-    δEᵢ <- {-# SCC "readDelta" #-} readPrimArray deltaEnergies i
-    {-# SCC "shouldAccept" #-} shouldAccept β δEᵢ gen
+  !accept <- {-# SCC "shouldAccept" #-} shouldAccept gen β =<< readPrimArray (energyChanges s) i
   when accept $ do
     let x = currentConfiguration s
     unsafeFlip x i
-    {-# SCC "_recomputeEnergyChanges" #-} recomputeEnergyChanges hamiltonian (energyChanges s) i =<< unsafeFreeze x
-    !oldEnergy <- {-# SCC "readCurrentEnergy" #-} readPrimArray (currentEnergyHistory s) sweep
-    !δEᵢ' <- {-# SCC "readDelta'" #-} readPrimArray deltaEnergies i
-    let !energy = oldEnergy - δEᵢ'
-    {-# SCC "writeCurrentEnergy" #-} writePrimArray (currentEnergyHistory s) sweep energy
-    !bestEnergy <- {-# SCC "readBestEnergy" #-} readPrimArray (bestEnergyHistory s) sweep
-    when (energy < bestEnergy) $ do
-      copy (bestConfiguration s) x
-      writePrimArray (bestEnergyHistory s) sweep energy
+    recomputeEnergyChanges hamiltonian (energyChanges s) i =<< unsafeFreeze x
+    !energy <-
+      (-) <$> readPrimArray (currentEnergyHistory s) sweep
+        <*> readPrimArray (energyChanges s) i
+    writePrimArray (currentEnergyHistory s) sweep energy
+    !shouldAccept <- (energy <) <$> readPrimArray (bestEnergyHistory s) sweep
+    when shouldAccept (updateBest s sweep x energy)
 {-# INLINE runStep #-}
 {-# SPECIALIZE runStep :: Hamiltonian -> Double -> Int -> Int -> Gen s -> MutableState s -> ST s () #-}
 {-# SCC runStep #-}
