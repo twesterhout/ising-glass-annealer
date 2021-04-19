@@ -19,6 +19,7 @@ module Physics.Ising
     graphErdosRenyi,
     randomHamiltonian,
     loadFromCSV,
+    createCongruential,
   )
 where
 
@@ -43,6 +44,7 @@ import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as MV
 import Foreign.C.Types
 import Foreign.Ptr
+import GHC.Float
 -- import qualified GHC.Show (show)
 -- import Numeric (showIntAtBase)
 
@@ -101,18 +103,70 @@ unsafeFlip !(MutableConfiguration v) !i = do
     !rest = i `mod` 64
 {-# INLINE unsafeFlip #-}
 
-newtype CongruentialState s = MutablePrimArray s Word32
+newtype CongruentialState s = CongruentialState (MutablePrimArray s Word32)
 
-nextWord :: PrimMonad m => CongruentialState s -> m Word32
+createCongruential :: PrimMonad m => Word32 -> m (CongruentialState (PrimState m))
+createCongruential seed = do
+  v <- newPrimArray 1
+  writePrimArray v 0 seed
+  return (CongruentialState v)
+
+nextWord :: PrimMonad m => CongruentialState (PrimState m) -> m Word32
 nextWord (CongruentialState s) = do
-  w <- next <$> readPrimArray s 0
+  !w <- next <$> readPrimArray s 0
   writePrimArray s 0 w
   return w
   where
     next !x = 69069 * x + 1234567
+{-# SCC nextWord #-}
 {-# INLINE nextWord #-}
 
--- uniformIntR :: PrimMonad m => Int -> CongruentialState s -> m Int
+uniformWordR :: forall m. PrimMonad m => Word32 -> CongruentialState (PrimState m) -> m Word32
+uniformWordR range32 s = fromIntegral <$> start
+  where
+    range64 :: Word64
+    range64 = fromIntegral range32
+    next :: m (Word64, Word32)
+    next = do
+      !w <- (range64 *) <$> fromIntegral <$> nextWord s
+      return (w, fromIntegral w)
+    start = do
+      (multiresult, leftover) <- next
+      if leftover < range32
+        then middle multiresult leftover $ (- range32) `mod` range32
+        else end multiresult
+    middle !multiresult !leftover !threshold
+      | leftover < threshold = do
+        (multiresult, leftover) <- next
+        middle multiresult leftover threshold
+      | otherwise = end multiresult
+    end !multiresult = return $ multiresult `shiftR` 32
+{-# INLINE uniformWordR #-}
+
+wordToFloat :: Word32 -> Float
+wordToFloat x = (fromIntegral i * m_inv_32) + 0.5 + m_inv_33
+  where
+    m_inv_33 = 1.16415321826934814453125e-10
+    m_inv_32 = 2.3283064365386962890625e-10
+    i = fromIntegral x :: Int32
+{-# INLINE wordToFloat #-}
+
+wordsTo64Bit :: Word32 -> Word32 -> Word64
+wordsTo64Bit x y = (fromIntegral x `shiftL` 32) .|. fromIntegral y
+{-# INLINE wordsTo64Bit #-}
+
+uniformFloat :: forall m. PrimMonad m => CongruentialState (PrimState m) -> m Float
+uniformFloat s = wordToFloat <$> nextWord s
+{-# INLINE uniformFloat #-}
+
+instance (s ~ PrimState m, PrimMonad m) => StatefulGen (CongruentialState s) m where
+  uniformWord8 s = fromIntegral <$> nextWord s
+  uniformWord16 s = fromIntegral <$> nextWord s
+  uniformWord32 s = nextWord s
+  {-# INLINE uniformWord32 #-}
+  uniformWord64 s = wordsTo64Bit <$> nextWord s <*> nextWord s
+  {-# INLINE uniformWord64 #-}
+  uniformShortByteString = undefined
 
 -- constexpr auto random_bounded(uint32_t const range, RandomGenerator& g) noexcept -> uint32_t
 -- {
@@ -359,7 +413,7 @@ shuffleVector !v !gen = go n
     !n = sizeofMutablePrimArray v - 1
     go !j
       | j > 0 = do
-        unsafeSwap v j =<< {-# SCC "uniform" #-} uniformRM (0, j) gen
+        unsafeSwap v j =<< {-# SCC "uniform" #-} fromIntegral <$> uniformRM (0 :: Word32, fromIntegral j) gen
         go (j - 1)
       | otherwise = return ()
 {-# INLINEABLE shuffleVector #-}
@@ -501,11 +555,29 @@ recomputeEnergyChanges hamiltonian deltaEnergies i bits = do
 --   assert (allClose frozenDeltaEnergies (computeEnergyChanges hamiltonian configuration)) $
 --     return ()
 
+generateAcceptanceProbabilities ::
+  (StatefulGen g m, PrimMonad m) =>
+  Double ->
+  MutablePrimArray (PrimState m) Double ->
+  g ->
+  m ()
+generateAcceptanceProbabilities β probabilities gen = action 0
+  where
+    !n = sizeofMutablePrimArray probabilities
+    action !i
+      | i < n = do
+        u <- float2Double <$> uniformFloat01M gen
+        writePrimArray probabilities i $ (1 / β) * log (2 * u)
+        action (i + 1)
+      | otherwise = return ()
+
+-- undefined
+
 shouldAccept :: StatefulGen g m => g -> Double -> Double -> m Bool
 shouldAccept gen β !δEᵢ
   | δEᵢ >= 0 =
-    let !p = exp (- β * δEᵢ)
-     in (p >) <$> force <$> uniformRM (0, 2) gen
+    let !p = 0.5 * exp (- β * δEᵢ)
+     in (p >) . float2Double <$> uniformFloat01M gen
   | otherwise = return True
 {-# INLINE shouldAccept #-}
 
