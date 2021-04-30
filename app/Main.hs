@@ -11,6 +11,7 @@ import System.Random.MWC
 main :: IO ()
 main = do
   !h <- loadFromCSV "kagome_16.csv"
+  print $ csrIsSymmetric (hamiltonianExchange h)
   -- performGC
   let (_, _, current, best) = runST $ do
         !gen <- createCongruential 46 -- initialize (V.singleton 46)
