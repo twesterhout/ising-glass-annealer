@@ -52,7 +52,7 @@ import Data.Bits
 -- import Data.Char (intToDigit)
 -- import Data.Foldable (maximum)
 
-import Data.Primitive.ByteArray (MutableByteArray (..), mutableByteArrayContents)
+-- import Data.Primitive.ByteArray (MutableByteArray (..), mutableByteArrayContents)
 import Data.Primitive.PrimArray
 import qualified Data.Primitive.Ptr as P
 import Data.Primitive.Types (Prim, sizeOf)
@@ -64,14 +64,14 @@ import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as MV
 -- import Foreign.C.Types
 
-import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.ForeignPtr (ForeignPtr, newForeignPtr_)
 import qualified Foreign.ForeignPtr
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr
 import Foreign.StablePtr
 import GHC.Exts
 import GHC.Float
-import System.IO.Unsafe (unsafePerformIO)
+-- import System.IO.Unsafe (unsafePerformIO)
 -- import qualified GHC.Show (show)
 -- import Numeric (showIntAtBase)
 
@@ -81,13 +81,35 @@ import System.Random.Stateful
 import qualified Text.Read
 import Prelude hiding (init, toList, trace, words)
 
-modifyPrimArray :: (PrimMonad m, Prim a) => MutablePrimArray (PrimState m) a -> (a -> a) -> Int -> m ()
-modifyPrimArray v f i = writePrimArray v i =<< f <$> readPrimArray v i
-{-# INLINE modifyPrimArray #-}
+withForeignPtr :: PrimBase m => ForeignPtr a -> (Ptr a -> m b) -> m b
+withForeignPtr fp action = unsafeIOToPrim $ Foreign.ForeignPtr.withForeignPtr fp (unsafePrimToIO . action)
+
+withVector :: (PrimBase m, Storable a) => Vector a -> (Ptr a -> m b) -> m b
+withVector v = withForeignPtr (fst . V.unsafeToForeignPtr0 $ v)
+
+withMVector :: PrimBase m => MVector (PrimState m) a -> (Ptr a -> m b) -> m b
+withMVector (MVector _ fp) = withForeignPtr fp
+
+indexVector :: (Storable a, Prim a) => Vector a -> Int -> a
+indexVector v i = unsafeInlineIO $ withVector v $ \p -> return $ P.indexOffPtr p i
+{-# INLINE indexVector #-}
+
+readVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> m a
+readVector v i = withMVector v $ \p -> P.readOffPtr p i
+
+writeVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> a -> m ()
+writeVector v i x = withMVector v $ \p -> P.writeOffPtr p i x
 
 modifyVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> (a -> a) -> Int -> m ()
 modifyVector v f i = writeVector v i =<< f <$> readVector v i
 {-# INLINE modifyVector #-}
+
+loopM_ :: Monad m => Int -> Int -> (Int -> m ()) -> m ()
+loopM_ !begin !end f = go begin
+  where
+    go !i
+      | i < end = f i >> go (i + 1)
+      | otherwise = return ()
 
 -- | Spin configuration.
 --
@@ -166,9 +188,9 @@ data CSR a = CSR
 
 -- | Sparse matrix in Coordinate format.
 data COO a = COO
-  { cooRowIndices :: {-# UNPACK #-} !(PrimArray Word32),
-    cooColumnIndices :: {-# UNPACK #-} !(PrimArray Word32),
-    cooData :: {-# UNPACK #-} !(PrimArray a)
+  { cooRowIndices :: {-# UNPACK #-} !(Vector Word32),
+    cooColumnIndices :: {-# UNPACK #-} !(Vector Word32),
+    cooData :: {-# UNPACK #-} !(Vector a)
   }
   deriving stock (Eq, Show)
 
@@ -211,18 +233,6 @@ exponentialSchedule !β₀ !β₁ !numberSweeps
   | numberSweeps == 0 = \_ -> 0
   | otherwise = \i -> (β₁ / β₀) ** (fromIntegral i / fromIntegral (numberSweeps - 1))
 
-vectorToPrimArray :: (Prim a, Storable a) => Vector a -> PrimArray a
-vectorToPrimArray = primArrayFromList . V.toList
-
-withForeignPtr :: PrimBase m => ForeignPtr a -> (Ptr a -> m b) -> m b
-withForeignPtr fp action = unsafeIOToPrim $ Foreign.ForeignPtr.withForeignPtr fp (unsafePrimToIO . action)
-
-withVector :: (PrimBase m, Storable a) => Vector a -> (Ptr a -> m b) -> m b
-withVector v = withForeignPtr (fst . V.unsafeToForeignPtr0 $ v)
-
-withMVector :: PrimBase m => MVector (PrimState m) a -> (Ptr a -> m b) -> m b
-withMVector (MVector _ fp) = withForeignPtr fp
-
 withMutableState ::
   forall m b.
   PrimBase m =>
@@ -246,72 +256,6 @@ withMutableState !numberSweeps !hamiltonian !x₀ action = do
     <*> V.unsafeFreeze eCurrent
     <*> V.unsafeFreeze eBest
     <*> pure r
-
-{-
-withMutableState ::
-  forall m b.
-  PrimBase m =>
-  MVector (PrimState m) Double ->
-  MVector (PrimState m) Double ->
-  Int ->
-  Hamiltonian ->
-  Configuration ->
-  (MutableState (PrimState m) -> m b) ->
-  m b
-withMutableState currentEnergyHistory' bestEnergyHistory' !numberSweeps !hamiltonian !x action = do
-  energyChanges' <- V.unsafeThaw $ computeEnergyChanges hamiltonian x
-  _currentConfiguration <- thaw x
-  _bestConfiguration <- thaw x
-  withMVector currentEnergyHistory' $ \_currentEnergyHistory ->
-    withMVector bestEnergyHistory' $ \_bestEnergyHistory ->
-      withMVector energyChanges' $ \_energyChanges -> do
-        let e = computeEnergy hamiltonian x
-        P.writeOffPtr _currentEnergyHistory 0 e
-        P.writeOffPtr _bestEnergyHistory 0 e
-        let s = MutableState _currentConfiguration _bestConfiguration _currentEnergyHistory _bestEnergyHistory _energyChanges
-        action s
--}
-
--- createMutableState :: PrimMonad m => Int -> Hamiltonian -> Configuration -> m (MutableState (PrimState m))
--- createMutableState !numberSweeps !hamiltonian !x = do
---   _energyChanges <- unsafeThawPrimArray . vectorToPrimArray $ computeEnergyChanges hamiltonian x
---   _currentConfiguration <- thaw x
---   _bestConfiguration <- thaw x
---   _currentEnergyHistory <- MV.new (numberSweeps + 1) -- newAlignedPinnedPrimArray (numberSweeps + 1)
---   _bestEnergyHistory <- MV.new (numberSweeps + 1) -- newAlignedPinnedPrimArray (numberSweeps + 1)
---   let e = computeEnergy hamiltonian x
---   MV.unsafeWrite _currentEnergyHistory 0 e
---   MV.unsafeWrite _bestEnergyHistory 0 e
---   -- writePrimArray _currentEnergyHistory 0 e
---   -- writePrimArray _bestEnergyHistory 0 e
---   return $
---     MutableState
---       _currentConfiguration
---       _bestConfiguration
---       _currentEnergyHistory
---       _bestEnergyHistory
---       _energyChanges
-
--- unsafeMutablePrimArrayPtr :: forall a s. MutablePrimArray s a -> Ptr a
--- unsafeMutablePrimArrayPtr (MutablePrimArray v) =
---   (castPtr :: Ptr Word8 -> Ptr a) $ mutableByteArrayContents (MutableByteArray v)
--- {-# INLINE unsafeMutablePrimArrayPtr #-}
-
-{-
-unsafeSwap :: PrimMonad m => MutablePrimArray (PrimState m) Int -> Int -> Int -> m ()
-unsafeSwap v !i !j = do
-  a <- readPrimArray v i
-  b <- readPrimArray v j
-  writePrimArray v i b
-  writePrimArray v j a
--- let !p = unsafeMutablePrimArrayPtr v
--- a <- P.readOffPtr p i
--- b <- P.readOffPtr p j
--- P.writeOffPtr p i b
--- P.writeOffPtr p j a
--- return ()
-{-# INLINE unsafeSwap #-}
--}
 
 unsafeSwap :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> Int -> m ()
 unsafeSwap v !i !j = do
@@ -345,40 +289,6 @@ generateAcceptanceProbabilities β probabilities g₀ = go g₀ 0
         go g' (i + 1)
       | otherwise = return g
 {-# SCC generateAcceptanceProbabilities #-}
-
-loopM_ :: Monad m => Int -> Int -> (Int -> m ()) -> m ()
-loopM_ !begin !end f = go begin
-  where
-    go !i
-      | i < end = f i >> go (i + 1)
-      | otherwise = return ()
-
-{-
-recomputeEnergyChangesImpl ::
-  PrimMonad m =>
-  Ptr Double ->
-  Ptr Word32 ->
-  Ptr Word32 ->
-  Int ->
-  Configuration ->
-  Ptr Double ->
-  m ()
-recomputeEnergyChangesImpl elements columnIndices rowIndices i bits deltaEnergies = do
-  P.writeOffPtr deltaEnergies i =<< (negate <$> P.readOffPtr deltaEnergies i)
-  go begin
-  where
-    begin = fromIntegral $ P.indexOffPtr rowIndices i
-    end = fromIntegral $ P.indexOffPtr rowIndices (i + 1)
-    pre = fromIntegral $ (-8) * unsafeIndex bits i
-    go !k
-      | k < end = do
-        let j = fromIntegral $ P.indexOffPtr columnIndices k
-            coupling = P.indexOffPtr elements k
-            σⱼ = fromIntegral $ unsafeIndex bits j
-        P.writeOffPtr deltaEnergies j =<< (+ pre * coupling * σⱼ) <$> P.readOffPtr deltaEnergies j
-        go (k + 1)
-      | otherwise = return ()
--}
 
 recomputeEnergyChanges :: forall m. PrimBase m => Hamiltonian -> MVector (PrimState m) Double -> Int -> Configuration -> m ()
 recomputeEnergyChanges hamiltonian deltaEnergies i bits = do
@@ -431,16 +341,6 @@ runStep !hamiltonian !p !sweep !i !s = do
         writeVector (bestEnergyHistory s) sweep e
 {-# INLINE runStep #-}
 {-# SCC runStep #-}
-
-indexVector :: (Storable a, Prim a) => Vector a -> Int -> a
-indexVector v i = unsafeInlineIO $ withVector v $ \p -> return $ P.indexOffPtr p i
-{-# INLINE indexVector #-}
-
-readVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> m a
-readVector v i = withMVector v $ \p -> P.readOffPtr p i
-
-writeVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> a -> m ()
-writeVector v i x = withMVector v $ \p -> P.writeOffPtr p i x
 
 runSweep ::
   (RandomGen g, PrimBase m) =>
@@ -575,18 +475,6 @@ runSweep !order !hamiltonian !β !sweep !gen !s = do
     runStep hamiltonian β sweep i gen s
 {-# SCC runSweep #-}
 -}
-
-initialOrder :: Int -> PrimArray Int
-initialOrder n = runST $ do
-  marr <- newAlignedPinnedPrimArray n
-  let go !i =
-        if i < n
-          then do
-            writePrimArray marr i i
-            go (i + 1)
-          else return ()
-  go 0
-  unsafeFreezePrimArray marr
 
 {-
 anneal' ::
@@ -739,7 +627,7 @@ computeEnergyChanges hamiltonian configuration = V.generate n energyChangeUponFl
 -- Sparse matrices
 ----------------------------------------------------------------------------------------------------
 
-instance Prim a => IsList (COO a) where
+instance Storable a => IsList (COO a) where
   type Item (COO a) = (Word32, Word32, a)
   fromList coo =
     let noValue f (a₁, a₂, _) (b₁, b₂, _) = f (a₁, a₂) (b₁, b₂)
@@ -813,8 +701,8 @@ cooShape :: COO a -> (Int, Int)
 cooShape (COO rowIndices columnIndices _) = (dim rowIndices, dim columnIndices)
   where
     dim xs
-      | sizeofPrimArray xs == 0 = 0
-      | otherwise = fromIntegral $ 1 + foldlPrimArray' max 0 xs
+      | V.length xs == 0 = 0
+      | otherwise = fromIntegral $ 1 + V.foldl' max 0 xs
 {-# INLINE cooShape #-}
 
 cooDim :: COO a -> Int
@@ -825,49 +713,44 @@ cooDim coo
     (n, m) = cooShape coo
 {-# INLINE cooDim #-}
 
-extractDiagonal :: (Num a, Prim a) => COO a -> (COO a, a)
+extractDiagonal :: (Num a, Prim a, Storable a) => COO a -> (COO a, a)
 extractDiagonal (COO rowIndices columnIndices elements) = runST $ do
-  let n = sizeofPrimArray rowIndices
-  rowIndices' <- newAlignedPinnedPrimArray n
-  columnIndices' <- newAlignedPinnedPrimArray n
-  elements' <- newAlignedPinnedPrimArray n
+  let n = V.length rowIndices
+  rowIndices' <- MV.unsafeNew n
+  columnIndices' <- MV.unsafeNew n
+  elements' <- MV.unsafeNew n
   let go !acc !offset !i
         | i < n =
-          if indexPrimArray rowIndices i == indexPrimArray columnIndices i
-            then go (acc + indexPrimArray elements i) offset (i + 1)
+          if indexVector rowIndices i == indexVector columnIndices i
+            then go (acc + indexVector elements i) offset (i + 1)
             else do
-              writePrimArray rowIndices' offset $ indexPrimArray rowIndices i
-              writePrimArray columnIndices' offset $ indexPrimArray columnIndices i
-              writePrimArray elements' offset $ indexPrimArray elements i
+              writeVector rowIndices' offset $ indexVector rowIndices i
+              writeVector columnIndices' offset $ indexVector columnIndices i
+              writeVector elements' offset $ indexVector elements i
               go acc (offset + 1) (i + 1)
         | otherwise = return (acc, offset)
   (trace, n') <- go 0 0 0
-  when (n' < n) $ do
-    shrinkMutablePrimArray rowIndices' n'
-    shrinkMutablePrimArray columnIndices' n'
-    shrinkMutablePrimArray elements' n'
   coo' <-
-    COO <$> unsafeFreezePrimArray rowIndices'
-      <*> unsafeFreezePrimArray columnIndices'
-      <*> unsafeFreezePrimArray elements'
+    COO <$> V.unsafeFreeze (MV.unsafeTake n' rowIndices')
+      <*> V.unsafeFreeze (MV.unsafeTake n' columnIndices')
+      <*> V.unsafeFreeze (MV.unsafeTake n' elements')
   return (coo', trace)
 {-# SCC extractDiagonal #-}
 
-fromCOO :: (Prim a, Storable a) => COO a -> CSR a
+fromCOO :: COO a -> CSR a
 fromCOO coo = CSR elements columnIndices rowIndices
   where
     !n = cooDim coo
-    !elements = fromList . toList $ cooData coo
-    !columnIndices = fromList . toList $ cooColumnIndices coo
-    !rowIndices = fromList . toList $
-      runST $ do
-        rs <- unsafeThawPrimArray $ replicatePrimArray (n + 1) 0
-        flip traversePrimArray_ (cooRowIndices coo) $ \i ->
-          modifyPrimArray rs (+ 1) (fromIntegral i + 1)
-        loopM_ 0 n $ \i -> do
-          r <- readPrimArray rs i
-          modifyPrimArray rs (+ r) (i + 1)
-        unsafeFreezePrimArray rs
+    !elements = cooData coo
+    !columnIndices = cooColumnIndices coo
+    !rowIndices = runST $ do
+      rs <- MV.replicate (n + 1) 0
+      V.forM_ (cooRowIndices coo) $ \i ->
+        modifyVector rs (+ 1) (fromIntegral i + 1)
+      loopM_ 0 n $ \i -> do
+        r <- readVector rs i
+        modifyVector rs (+ r) (i + 1)
+      V.unsafeFreeze rs
 {-# SCC fromCOO #-}
 
 ----------------------------------------------------------------------------------------------------
@@ -963,13 +846,6 @@ uniformFloat01 !g =
 -- Foreign exported functions
 ----------------------------------------------------------------------------------------------------
 
-primArrayFromPtr :: forall a. Prim a => Int -> Ptr a -> IO (PrimArray a)
-primArrayFromPtr n p = do
-  let elementSize = let x = x :: a in sizeOf x
-  v <- newAlignedPinnedPrimArray n
-  copyBytes (mutablePrimArrayContents v) p (n * elementSize)
-  unsafeFreezePrimArray v
-
 create_hamiltonian ::
   Word32 ->
   Ptr Word32 ->
@@ -977,18 +853,53 @@ create_hamiltonian ::
   Ptr Double ->
   IO (StablePtr Hamiltonian)
 create_hamiltonian n rowIndicesPtr columnIndicesPtr dataPtr = do
-  let count = fromIntegral n
-  exchange <-
-    COO <$> primArrayFromPtr count rowIndicesPtr
-      <*> primArrayFromPtr count columnIndicesPtr
-      <*> primArrayFromPtr count dataPtr
-  let (exchange', trace) = extractDiagonal exchange
-      hamiltonian = Hamiltonian (fromCOO exchange') trace
+  let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
+  (matrix, trace) <-
+    fmap extractDiagonal $
+      COO <$> fromPtr (fromIntegral n) rowIndicesPtr
+        <*> fromPtr (fromIntegral n) columnIndicesPtr
+        <*> fromPtr (fromIntegral n) dataPtr
+  let hamiltonian = Hamiltonian (fromCOO matrix) trace
   newStablePtr hamiltonian
+
+foreign export ccall create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
 
 destroy_hamiltonian :: StablePtr Hamiltonian -> IO ()
 destroy_hamiltonian = freeStablePtr
 
-foreign export ccall create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
-
 foreign export ccall destroy_hamiltonian :: StablePtr Hamiltonian -> IO ()
+
+configurationFromPtr :: Int -> Ptr Word64 -> IO Configuration
+configurationFromPtr n p = do
+  let blocks = (n + 63) `div` 64
+  v <- newAlignedPinnedPrimArray blocks
+  copyBytes (mutablePrimArrayContents v) p $ blocks * sizeOf (0 :: Word64)
+  unsafeFreeze $ MutableConfiguration v
+
+find_ground_state ::
+  StablePtr Hamiltonian ->
+  Ptr Word64 ->
+  Word32 ->
+  Word32 ->
+  Double ->
+  Double ->
+  Ptr Word64 ->
+  Ptr Double ->
+  IO ()
+find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr ePtr = do
+  hamiltonian <- deRefStablePtr _hamiltonian
+  let n = dimension hamiltonian
+      g₀ = CongruentialState seed
+      sweeps = fromIntegral _sweeps
+      options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps) sweeps
+  (x₀, g₁) <-
+    if xPtr₀ == nullPtr
+      then return $ randomConfiguration' n g₀
+      else do
+        x <- configurationFromPtr n xPtr₀
+        return (x, g₀)
+  let (_, (Configuration xBest), _, eBest, _) = runAnnealing options x₀ g₁
+  copyPrimArrayToPtr xPtr xBest 0 (sizeofPrimArray xBest)
+  P.writeOffPtr ePtr 0 $ indexVector eBest sweeps
+
+foreign export ccall find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Double -> Double -> Ptr Word64 -> Ptr Double -> IO ()

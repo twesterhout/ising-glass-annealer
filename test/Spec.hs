@@ -67,21 +67,19 @@ main = hspec $ do
         gen <- initialize (V.singleton seed)
         h <- randomHamiltonian 5 0.8 gen
         let sweeps = 1000
-            options = SimulationOptions h (linearSchedule 0.1 3.0 sweeps) sweeps
+            options = SimulationOptions h (linearSchedule 0.1 6.0 sweeps) sweeps
             (_, eExpected) = bruteForceSolve h
-        (x, eComputed) <- groundState options gen
-        (x₂, eComputed₂) <- simpleGroundState options seed
+            (x, eComputed) = simpleGroundState options seed
         roundTo (computeEnergy h x) 10 `shouldBe` roundTo eComputed 10
         roundTo eComputed 7 `shouldBe` roundTo eExpected 7
-        roundTo eComputed₂ 7 `shouldBe` roundTo eExpected 7
     it "solves systems of 10 spins" $ do
       forM_ [51, 52, 53] $ \seed -> do
         gen <- initialize (V.singleton seed)
         h <- randomHamiltonian 10 0.8 gen
         let sweeps = 1000
-            options = SimulationOptions h (linearSchedule 0.1 3.0 sweeps) sweeps
+            options = SimulationOptions h (linearSchedule 0.1 6.0 sweeps) sweeps
             (_, eExpected) = bruteForceSolve h
-        (x, eComputed) <- groundState options gen
+            (x, eComputed) = simpleGroundState options seed
         roundTo (computeEnergy h x) 10 `shouldBe` roundTo eComputed 10
         roundTo eComputed 7 `shouldBe` roundTo eExpected 7
 
