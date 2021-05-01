@@ -2,13 +2,13 @@ packages: *
 
 package *
   optimization: 2
-  ghc-options: -fllvm -fexpose-all-unfoldings -fspecialise-aggressively
+  ghc-options: -fPIC -fexpose-all-unfoldings -fspecialise-aggressively
 
 package primitive
   optimization: 2
-  ghc-options: -fllvm -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively
+  ghc-options: -fPIC -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively
 
 package ising-ground-state
   optimization: 2
   profiling: true
-  ghc-options: -fno-prof-auto -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively
+  ghc-options: -fPIC -fno-prof-auto -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively

@@ -9,10 +9,14 @@ author:              Tom Westerhout
 maintainer:          Tom Westerhout <14264576+twesterhout@users.noreply.github.com>
 copyright:           2021 Tom Westerhout
 category:            Math
-build-type:          Simple
+build-type:          Custom
 extra-doc-files:     README.md
                      CHANGELOG.md
-tested-with:         GHC == 8.10.3
+tested-with:         GHC == 8.8.4
+                     GHC == 8.10.4
+
+custom-setup
+  setup-depends:       base, containers, Cabal, filepath
 
 common common-options
   build-depends:       base >= 4.13.0.0
@@ -50,9 +54,8 @@ common common-options
 library
   import:              common-options
   hs-source-dirs:      src
-  exposed-modules:     IsingGroundState
-                     , Physics.Ising
-  c-sources:           cbits/helpers.c
+  exposed-modules:     Physics.Ising
+  c-sources:           cbits/init.c
   build-depends:       vector
                      , deepseq
                      , primitive
@@ -63,23 +66,15 @@ library
                      -- , ghc-dump-core
                      -- , ghc-dump-util
                      -- , inline-c
-  ghc-options: -fspecialise-aggressively
-  -- ghc-options: -fplugin GhcDump.Plugin
 
 executable ising-ground-state
   import:              common-options
   hs-source-dirs:      app
   main-is:             Main.hs
   build-depends:       ising-ground-state
-                     , vector
-                     , text
-                     , mwc-random
-                     , primitive
-                     -- , ghc-dump-core
   ghc-options:         -threaded
                        -rtsopts
                        -with-rtsopts=-N
-                       -fspecialise-aggressively
 
 test-suite ising-ground-state-test
   import:              common-options

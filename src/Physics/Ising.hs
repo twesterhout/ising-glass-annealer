@@ -870,7 +870,7 @@ uniformFloat01 !g =
 -- Foreign exported functions
 ----------------------------------------------------------------------------------------------------
 
-create_hamiltonian ::
+sa_create_hamiltonian ::
   Word32 ->
   Ptr Word32 ->
   Ptr Word32 ->
@@ -878,7 +878,7 @@ create_hamiltonian ::
   Word32 ->
   Ptr Double ->
   IO (StablePtr Hamiltonian)
-create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr numberSpins fieldPtr = do
+sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr numberSpins fieldPtr = do
   let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
   fields <- fromPtr (fromIntegral numberSpins) fieldPtr
   (matrix, trace) <-
@@ -889,12 +889,12 @@ create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr number
   let hamiltonian = Hamiltonian (fromCOO matrix) fields trace
   newStablePtr hamiltonian
 
-foreign export ccall create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
+foreign export ccall sa_create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
 
-destroy_hamiltonian :: StablePtr Hamiltonian -> IO ()
-destroy_hamiltonian = freeStablePtr
+sa_destroy_hamiltonian :: StablePtr Hamiltonian -> IO ()
+sa_destroy_hamiltonian = freeStablePtr
 
-foreign export ccall destroy_hamiltonian :: StablePtr Hamiltonian -> IO ()
+foreign export ccall sa_destroy_hamiltonian :: StablePtr Hamiltonian -> IO ()
 
 configurationFromPtr :: Int -> Ptr Word64 -> IO Configuration
 configurationFromPtr n p = do
@@ -903,7 +903,7 @@ configurationFromPtr n p = do
   copyBytes (mutablePrimArrayContents v) p $ blocks * sizeOf (0 :: Word64)
   unsafeFreeze $ MutableConfiguration v
 
-find_ground_state ::
+sa_find_ground_state ::
   StablePtr Hamiltonian ->
   Ptr Word64 ->
   Word32 ->
@@ -913,7 +913,7 @@ find_ground_state ::
   Ptr Word64 ->
   Ptr Double ->
   IO ()
-find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr ePtr = do
+sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr ePtr = do
   hamiltonian <- deRefStablePtr _hamiltonian
   let n = dimension hamiltonian
       g₀ = CongruentialState seed
@@ -929,4 +929,4 @@ find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr ePtr = do
   copyPrimArrayToPtr xPtr xBest 0 (sizeofPrimArray xBest)
   P.writeOffPtr ePtr 0 $ indexVector eBest sweeps
 
-foreign export ccall find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Double -> Double -> Ptr Word64 -> Ptr Double -> IO ()
+foreign export ccall sa_find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Double -> Double -> Ptr Word64 -> Ptr Double -> IO ()
