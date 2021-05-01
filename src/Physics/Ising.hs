@@ -196,6 +196,7 @@ data COO a = COO
 
 data Hamiltonian = Hamiltonian
   { hamiltonianExchange :: {-# UNPACK #-} !(CSR Double),
+    hamiltonianField :: {-# UNPACK #-} !(Vector Double),
     hamiltonianOffset :: {-# UNPACK #-} !Double
   }
 
@@ -601,10 +602,22 @@ matrixVectorProductElement !(CSR elements columnIndices rowIndices) !v !i =
          in go (acc + coupling * σⱼ) (k + 1) n
       | otherwise = acc
 
+dotProduct :: (Storable a, Prim a, Num a) => Vector a -> Configuration -> a
+dotProduct !field !v = go 0 0
+  where
+    n = V.length field
+    go acc i
+      | i >= n = acc
+      | otherwise =
+        let t = fromIntegral (unsafeIndex v i) * indexVector field i
+         in go (acc + t) (i + 1)
+
 -- | Compute energy of a classical spin configuration
 computeEnergy :: Hamiltonian -> Configuration -> Double
 computeEnergy !hamiltonian !configuration =
-  hamiltonianOffset hamiltonian + goColumn 0 0 (numberRows matrix)
+  hamiltonianOffset hamiltonian
+    + dotProduct (hamiltonianField hamiltonian) configuration
+    + goColumn 0 0 (numberRows matrix)
   where
     !matrix = hamiltonianExchange hamiltonian
     goColumn !acc !i !n
@@ -621,7 +634,10 @@ computeEnergyChanges hamiltonian configuration = V.generate n energyChangeUponFl
     n = numberRows $ hamiltonianExchange hamiltonian
     σ i = fromIntegral $ unsafeIndex configuration i
     energyChangeUponFlip i =
-      -4 * σ i * matrixVectorProductElement (hamiltonianExchange hamiltonian) configuration i
+      - σ i
+        * ( 4 * matrixVectorProductElement (hamiltonianExchange hamiltonian) configuration i
+              + 2 * indexVector (hamiltonianField hamiltonian) i
+          )
 
 ----------------------------------------------------------------------------------------------------
 -- Sparse matrices
@@ -778,9 +794,10 @@ randomHamiltonianM :: StatefulGen g m => Int -> Double -> g -> m Hamiltonian
 randomHamiltonianM n p gen = do
   graph <- graphErdosRenyi n p gen
   couplings <- replicateM (length graph) (uniformRM (-1, 1) gen)
+  fields <- replicateM n (uniformRM (-1, 1) gen)
   let coo = zipWith (\(i, j) c -> (fromIntegral i, fromIntegral j, c)) graph couplings
       csr = fromCOO . fromList $ coo ++ map (\(i, j, c) -> (j, i, c)) coo
-  return $ Hamiltonian csr 0
+  return $ Hamiltonian csr (fromList fields) 0
 
 randomHamiltonian :: RandomGen g => Int -> Double -> g -> (Hamiltonian, g)
 randomHamiltonian n p g = runStateGen g (randomHamiltonianM n p)
@@ -788,10 +805,17 @@ randomHamiltonian n p g = runStateGen g (randomHamiltonianM n p)
 loadFromCSV :: String -> IO Hamiltonian
 loadFromCSV filename = do
   contents <- lines <$> T.readFile filename
-  let parse [i, j, c] = (Text.Read.read i, Text.Read.read j, Text.Read.read c)
+  let parse [i, c] = Left (Text.Read.read i, Text.Read.read c)
+      parse [i, j, c] = Right (Text.Read.read i, Text.Read.read j, Text.Read.read c)
       parse parts = error $ "Parsing " <> show filename <> " failed: " <> show parts
-      (coo, diagonal) = extractDiagonal . fromList $ parse . map toString . T.splitOn "," <$> contents
-  return $ Hamiltonian (fromCOO coo) diagonal
+      numbers = parse . map toString . T.splitOn "," <$> contents
+      (coo, diagonal) = extractDiagonal . fromList $ rights numbers
+      csr = fromCOO coo
+      fields = runST $ do
+        f <- MV.replicate (numberRows csr) 0
+        forM_ (lefts numbers) $ \(i, c) -> writeVector f i c
+        V.unsafeFreeze f
+  return $ Hamiltonian csr fields diagonal
 {-# SCC loadFromCSV #-}
 
 ----------------------------------------------------------------------------------------------------
@@ -851,18 +875,21 @@ create_hamiltonian ::
   Ptr Word32 ->
   Ptr Word32 ->
   Ptr Double ->
+  Word32 ->
+  Ptr Double ->
   IO (StablePtr Hamiltonian)
-create_hamiltonian n rowIndicesPtr columnIndicesPtr dataPtr = do
+create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr numberSpins fieldPtr = do
   let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
+  fields <- fromPtr (fromIntegral numberSpins) fieldPtr
   (matrix, trace) <-
     fmap extractDiagonal $
-      COO <$> fromPtr (fromIntegral n) rowIndicesPtr
-        <*> fromPtr (fromIntegral n) columnIndicesPtr
-        <*> fromPtr (fromIntegral n) dataPtr
-  let hamiltonian = Hamiltonian (fromCOO matrix) trace
+      COO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
+        <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
+        <*> fromPtr (fromIntegral numberCouplings) dataPtr
+  let hamiltonian = Hamiltonian (fromCOO matrix) fields trace
   newStablePtr hamiltonian
 
-foreign export ccall create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
+foreign export ccall create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
 
 destroy_hamiltonian :: StablePtr Hamiltonian -> IO ()
 destroy_hamiltonian = freeStablePtr

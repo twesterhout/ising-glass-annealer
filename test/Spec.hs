@@ -40,7 +40,7 @@ main = hspec $ do
               [5, 1, 5, 2, 1, 2]
               [1, 2, 0, 2, 0, 1]
               [0, 2, 4, 6]
-          h = Hamiltonian matrix 0
+          h = Hamiltonian matrix (V.replicate 3 0) 0
           c x = Configuration $ fromList [x]
       fromCOO cooMatrix `shouldBe` matrix
       csrIsSymmetric matrix `shouldBe` True
@@ -65,7 +65,7 @@ main = hspec $ do
     it "solves systems of 5 spins" $ do
       forM_ [46, 47, 48, 49] $ \seed -> do
         gen <- initialize (V.singleton seed)
-        h <- randomHamiltonian 5 0.8 gen
+        h <- randomHamiltonianM 5 0.8 gen
         let sweeps = 1000
             options = SimulationOptions h (linearSchedule 0.1 6.0 sweeps) sweeps
             (_, eExpected) = bruteForceSolve h
@@ -75,7 +75,7 @@ main = hspec $ do
     it "solves systems of 10 spins" $ do
       forM_ [51, 52, 53] $ \seed -> do
         gen <- initialize (V.singleton seed)
-        h <- randomHamiltonian 10 0.8 gen
+        h <- randomHamiltonianM 10 0.8 gen
         let sweeps = 1000
             options = SimulationOptions h (linearSchedule 0.1 6.0 sweeps) sweeps
             (_, eExpected) = bruteForceSolve h
