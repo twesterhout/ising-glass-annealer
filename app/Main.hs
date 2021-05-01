@@ -12,14 +12,19 @@ main :: IO ()
 main = do
   !h <- loadFromCSV "kagome_16.csv"
   print $ csrIsSymmetric (hamiltonianExchange h)
-  -- performGC
-  let (_, _, current, best) = runST $ do
-        !gen <- createCongruential 46 -- initialize (V.singleton 46)
-        -- h <- randomHamiltonian 5 0.8 gen
-        let sweeps = 2000
-            options = SimulationOptions h (exponentialSchedule 0.1 10000.0 sweeps) sweeps
-        anneal options gen
-  -- withFile "output_16.dat" WriteMode $ \handle ->
-  --   V.forM_ (V.zip current best) $ \(e₁, e₂) ->
-  --     T.hPutStrLn handle $ show e₁ <> "," <> show e₂
-  print $ indexPrimArray best 2000
+  let sweeps = 2000
+      options = SimulationOptions h (exponentialSchedule 0.1 20000.0 sweeps) sweeps
+      (_, !energy) = simpleGroundState options 46
+  print $ energy
+
+-- performGC
+-- let (_, _, current, best) = runST $ do
+--       !gen <- createCongruential 46 -- initialize (V.singleton 46)
+--       -- h <- randomHamiltonian 5 0.8 gen
+--       let sweeps = 2000
+--           options = SimulationOptions h (exponentialSchedule 0.1 10000.0 sweeps) sweeps
+--       anneal options gen
+-- withFile "output_16.dat" WriteMode $ \handle ->
+--   V.forM_ (V.zip current best) $ \(e₁, e₂) ->
+--     T.hPutStrLn handle $ show e₁ <> "," <> show e₂
+-- print $ indexPrimArray best 2000
