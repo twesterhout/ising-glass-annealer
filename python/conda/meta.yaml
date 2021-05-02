@@ -1,0 +1,28 @@
+{% set data = load_setup_py_data(setup_file='setup.py') %}
+
+package:
+  name: ising-ground-state
+  version: {{ data.get('version') }}
+
+source:
+  path: ../
+
+build:
+  number: 1
+  binary_relocation: False
+  detect_binary_files_with_prefix: False
+ 
+requirements:
+  build:
+    - {{ compiler('c') }}
+
+  host:
+    - python
+    - numpy
+    - scipy
+
+  run:
+    - gcc_impl_linux-64
+    - python
+    - numpy
+    - scipy
