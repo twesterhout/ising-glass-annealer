@@ -2,6 +2,9 @@ packages: *
 
 package *
   optimization: 2
+  split-sections: true
+  executable-stripping: true
+  library-stripping: true
   ghc-options: -fPIC -fexpose-all-unfoldings -fspecialise-aggressively
 
 package primitive
