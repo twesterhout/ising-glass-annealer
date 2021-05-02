@@ -1,4 +1,4 @@
-#include "ising_ground_state.h"
+#include "ising_glass_annealer.h"
 #include <HsFFI.h>
 #include <stdio.h>
 

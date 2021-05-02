@@ -59,7 +59,7 @@ def __library_name() -> str:
         extension = ".dylib"
     else:
         raise ImportError("Unsupported platform: {}".format(sys.platform))
-    return "libising_ground_state{}".format(extension)
+    return "libising_glass_annealer{}".format(extension)
 
 
 def __package_path() -> str:
@@ -76,10 +76,10 @@ def __load_shared_library():
         return ctypes.CDLL(os.path.join(prefix, libname))
     # Next, try using conda
     if os.path.exists(os.path.join(sys.prefix, "conda-meta")):
-        prefix = os.path.join(sys.prefix, "lib")
-        try:
-            return ctypes.CDLL(os.path.join(prefix, libname))
-        except:
+        path = os.path.join(sys.prefix, "lib", libname)
+        if os.path.exists(path):
+            return ctypes.CDLL(path)
+        else:
             warnings.warn(
                 "Using python from Conda, but '{}' library was not found in "
                 "the current environment. Will try pkg-config now...".format(libname),
@@ -87,12 +87,12 @@ def __load_shared_library():
             )
     # Finally, try to determine the prefix using pkg-config
     result = subprocess.run(
-        ["pkg-config", "--variable=libdir", "ising_ground_state"], capture_output=True, text=True
+        ["pkg-config", "--variable=libdir", "ising_glass_annealer"], capture_output=True, text=True
     )
     if result.returncode != 0:
-        raise ImportError("Failed to load ising_ground_state C library")
+        raise ImportError("Failed to load ising_glass_annealer C library")
     prefix = result.stdout.strip()
-    return ctypes.CDLL(os.path.join(prefix, __library_name()))
+    return ctypes.CDLL(os.path.join(prefix, libname))
 
 
 _lib = __load_shared_library()

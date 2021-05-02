@@ -11,7 +11,7 @@ package primitive
   optimization: 2
   ghc-options: -fPIC -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively
 
-package ising-ground-state
+package ising-glass-annealer
   optimization: 2
   profiling: true
   ghc-options: -fPIC -fno-prof-auto -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively

@@ -3,7 +3,7 @@
 set -eu
 
 PREFIX="$PWD/prefix"
-LIBRARY_NAME="ising_ground_state"
+LIBRARY_NAME="ising_glass_annealer"
 declare -a HS_LD_FLAGS
 declare -a C_LD_FLAGS
 

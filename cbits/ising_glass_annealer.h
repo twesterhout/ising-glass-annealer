@@ -1,5 +1,5 @@
-#ifndef ISING_GROUND_STATE_H
-#define ISING_GROUND_STATE_H
+#ifndef ISING_GLASS_ANNEALER_H
+#define ISING_GLASS_ANNEALER_H
 
 #include <stdint.h>
 
@@ -15,4 +15,4 @@ void sa_find_ground_state(void *hamiltonian, uint64_t const *init,
                           double beta1, uint64_t *configuration,
                           double *energy);
 
-#endif // ISING_GROUND_STATE_H
+#endif // ISING_GLASS_ANNEALER_H
