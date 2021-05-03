@@ -2,13 +2,14 @@
 
 set -eu
 
-PREFIX="$PWD/prefix"
+PREFIX="$PWD/python/prefix"
 LIBRARY_NAME="ising_glass_annealer"
 declare -a HS_LD_FLAGS
 declare -a C_LD_FLAGS
 
 cabal_build_dir() {
-  realpath "$(dirname $(find dist-newstyle -name "init.o"))/.."
+  declare -r ghc_version=$(ghc --version | tr ' ' '\n' | tail -n 1)
+  realpath "$(dirname $(find dist-newstyle -name "init.o" | grep "$ghc_version"))/.."
 }
 
 init_flags() {
@@ -28,11 +29,11 @@ init_flags() {
 }
 
 create_shared_library() {
-  set -x
+  # set -x
   # -optl -Wl,--retain-symbols-file=$PWD/api.txt
   ghc --make -v -no-hs-main -pgmc "$CC" -pgml "$CC" -shared "$(cabal_build_dir)/cbits/init.o" \
     -o "$PREFIX/lib/lib${LIBRARY_NAME}.so" "${HS_LD_FLAGS[@]}" "${C_LD_FLAGS[@]}"
-  set +x
+  # set +x
 }
 
 create_static_library() {

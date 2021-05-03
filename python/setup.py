@@ -13,14 +13,14 @@ def get_version(package):
 
 
 setup(
-    name="ising-ground-state",
-    version=get_version("ising_ground_state"),
+    name="ising-glass-annealer",
+    version=get_version("ising_glass_annealer"),
     description="See README.md",
-    url="http://github.com/twesterhout/ising-ground-state",
+    url="http://github.com/twesterhout/ising-glass-annealer",
     author="Tom Westerhout",
     author_email="14264576+twesterhout@users.noreply.github.com",
     license="BSD3",
-    packages=["ising_ground_state"],
+    packages=["ising_glass_annealer"],
     install_requires=["numpy", "scipy"],
     zip_safe=False,
 )

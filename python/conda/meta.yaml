@@ -9,10 +9,16 @@ source:
 
 build:
   number: 3
+  run_exports:
+    - python
+  ignore_run_exports:
+    - numpy
+    - scipy
  
 requirements:
   build:
     - {{ compiler('c') }}
+    - numactl-devel-cos6-x86_64
 
   host:
     - python
@@ -21,6 +27,7 @@ requirements:
 
   run:
     - gcc_impl_linux-64
+    - numactl-cos6-x86_64
     - python
     - numpy
     - scipy
