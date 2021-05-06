@@ -31,7 +31,7 @@ init_flags() {
 create_shared_library() {
   # set -x
   # -optl -Wl,--retain-symbols-file=$PWD/api.txt
-  ghc --make -v -no-hs-main -pgmc "$CC" -pgml "$CC" -shared "$(cabal_build_dir)/cbits/init.o" \
+  ghc --make -v -no-hs-main -pgmc "${CC:-cc}" -pgml "${CC:-cc}" -shared "$(cabal_build_dir)/cbits/init.o" \
     -o "$PREFIX/lib/lib${LIBRARY_NAME}.so" "${HS_LD_FLAGS[@]}" "${C_LD_FLAGS[@]}"
   # set +x
 }
