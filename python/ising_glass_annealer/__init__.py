@@ -43,7 +43,6 @@ import scipy.sparse
 import os
 import subprocess
 import sys
-from typing import List, Optional, Tuple, Union
 import warnings
 import weakref
 
@@ -157,6 +156,7 @@ class Hamiltonian:
         self._finalizer = weakref.finalize(self, _lib.sa_destroy_hamiltonian, self._payload)
         self.shape = exchange.shape
         self.dtype = np.float64
+        self._keep_alive = [exchange, field]
 
 
 def anneal(hamiltonian: Hamiltonian, seed: int = 46, number_sweeps: int = 2000, beta0: float = 0.1, beta1: float = 20000.0):
