@@ -199,10 +199,11 @@ data Hamiltonian = Hamiltonian
     hamiltonianField :: {-# UNPACK #-} !(Vector Double),
     hamiltonianOffset :: {-# UNPACK #-} !Double
   }
+  deriving (Show)
 
 -- | Return dimension of the Hamiltonian (i.e. number of spins in the system).
 dimension :: Hamiltonian -> Int
-dimension = numberRows . hamiltonianExchange
+dimension = V.length . hamiltonianField
 
 linearSchedule ::
   -- | Initial β
@@ -602,7 +603,7 @@ matrixVectorProductElement !(CSR elements columnIndices rowIndices) !v !i =
          in go (acc + coupling * σⱼ) (k + 1) n
       | otherwise = acc
 
-dotProduct :: (Storable a, Prim a, Num a) => Vector a -> Configuration -> a
+dotProduct :: (Storable a, Prim a, Num a, Show a) => Vector a -> Configuration -> a
 dotProduct !field !v = go 0 0
   where
     n = V.length field
@@ -631,7 +632,7 @@ computeEnergy !hamiltonian !configuration =
 computeEnergyChanges :: Hamiltonian -> Configuration -> Vector Double
 computeEnergyChanges hamiltonian configuration = V.generate n energyChangeUponFlip
   where
-    n = numberRows $ hamiltonianExchange hamiltonian
+    n = dimension hamiltonian
     σ i = fromIntegral $ unsafeIndex configuration i
     energyChangeUponFlip i =
       - σ i
@@ -753,10 +754,12 @@ extractDiagonal (COO rowIndices columnIndices elements) = runST $ do
   return (coo', trace)
 {-# SCC extractDiagonal #-}
 
-fromCOO :: COO a -> CSR a
-fromCOO coo = CSR elements columnIndices rowIndices
+fromCOO :: Maybe Int -> COO a -> CSR a
+fromCOO dim coo = CSR elements columnIndices rowIndices
   where
-    !n = cooDim coo
+    !n = case dim of
+      Just d -> d
+      Nothing -> cooDim coo
     !elements = cooData coo
     !columnIndices = cooColumnIndices coo
     !rowIndices = runST $ do
@@ -796,7 +799,7 @@ randomHamiltonianM n p gen = do
   couplings <- replicateM (length graph) (uniformRM (-1, 1) gen)
   fields <- replicateM n (uniformRM (-1, 1) gen)
   let coo = zipWith (\(i, j) c -> (fromIntegral i, fromIntegral j, c)) graph couplings
-      csr = fromCOO . fromList $ coo ++ map (\(i, j, c) -> (j, i, c)) coo
+      csr = fromCOO Nothing . fromList $ coo ++ map (\(i, j, c) -> (j, i, c)) coo
   return $ Hamiltonian csr (fromList fields) 0
 
 randomHamiltonian :: RandomGen g => Int -> Double -> g -> (Hamiltonian, g)
@@ -810,7 +813,7 @@ loadFromCSV filename = do
       parse parts = error $ "Parsing " <> show filename <> " failed: " <> show parts
       numbers = parse . map toString . T.splitOn "," <$> contents
       (coo, diagonal) = extractDiagonal . fromList $ rights numbers
-      csr = fromCOO coo
+      csr = fromCOO Nothing coo
       fields = runST $ do
         f <- MV.replicate (numberRows csr) 0
         forM_ (lefts numbers) $ \(i, c) -> writeVector f i c
@@ -886,7 +889,7 @@ sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr num
       COO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
         <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
         <*> fromPtr (fromIntegral numberCouplings) dataPtr
-  let hamiltonian = Hamiltonian (fromCOO matrix) fields trace
+  let hamiltonian = Hamiltonian (fromCOO (Just (fromIntegral numberSpins)) matrix) fields trace
   newStablePtr hamiltonian
 
 foreign export ccall sa_create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
