@@ -199,7 +199,7 @@ data Hamiltonian = Hamiltonian
     hamiltonianField :: {-# UNPACK #-} !(Vector Double),
     hamiltonianOffset :: {-# UNPACK #-} !Double
   }
-  deriving (Show)
+  deriving stock (Show)
 
 -- | Return dimension of the Hamiltonian (i.e. number of spins in the system).
 dimension :: Hamiltonian -> Int
@@ -603,7 +603,7 @@ matrixVectorProductElement !(CSR elements columnIndices rowIndices) !v !i =
          in go (acc + coupling * σⱼ) (k + 1) n
       | otherwise = acc
 
-dotProduct :: (Storable a, Prim a, Num a, Show a) => Vector a -> Configuration -> a
+dotProduct :: (Storable a, Prim a, Num a) => Vector a -> Configuration -> a
 dotProduct !field !v = go 0 0
   where
     n = V.length field
@@ -907,16 +907,27 @@ configurationFromPtr n p = do
   unsafeFreeze $ MutableConfiguration v
 
 sa_find_ground_state ::
+  -- | Hamiltonian
   StablePtr Hamiltonian ->
+  -- | Initial configuration. If @nullPtr@, a random initial configuration will
+  -- be chosen
   Ptr Word64 ->
+  -- | Seed for the random number generator
   Word32 ->
+  -- | Number sweeps
   Word32 ->
+  -- | Initial β
   Double ->
+  -- | Final β
   Double ->
+  -- | Best configuration
   Ptr Word64 ->
+  -- | Current energy history
+  Ptr Double ->
+  -- | Best energy history
   Ptr Double ->
   IO ()
-sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr ePtr = do
+sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr currentEPtr bestEPtr = do
   hamiltonian <- deRefStablePtr _hamiltonian
   let n = dimension hamiltonian
       g₀ = CongruentialState seed
@@ -928,8 +939,14 @@ sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr ePtr = d
       else do
         x <- configurationFromPtr n xPtr₀
         return (x, g₀)
-  let (_, (Configuration xBest), _, eBest, _) = runAnnealing options x₀ g₁
+  let (_, (Configuration xBest), eCurrent, eBest, _) = runAnnealing options x₀ g₁
   copyPrimArrayToPtr xPtr xBest 0 (sizeofPrimArray xBest)
-  P.writeOffPtr ePtr 0 $ indexVector eBest sweeps
+  let sizeOfDouble = let x = x :: Double in sizeOf x
+  when (currentEPtr /= nullPtr) $
+    V.unsafeWith eCurrent $ \src ->
+      copyBytes currentEPtr src (V.length eCurrent * sizeOfDouble)
+  when (bestEPtr /= nullPtr) $
+    V.unsafeWith eBest $ \src ->
+      copyBytes bestEPtr src (V.length eBest * sizeOfDouble)
 
-foreign export ccall sa_find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Double -> Double -> Ptr Word64 -> Ptr Double -> IO ()
+foreign export ccall sa_find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Double -> Double -> Ptr Word64 -> Ptr Double -> Ptr Double -> IO ()
