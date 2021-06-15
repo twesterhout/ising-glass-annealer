@@ -21,6 +21,6 @@ setup(
     author_email="14264576+twesterhout@users.noreply.github.com",
     license="BSD3",
     packages=["ising_glass_annealer"],
-    install_requires=["numpy", "scipy"],
+    install_requires=["numpy", "scipy", "loguru"],
     zip_safe=False,
 )

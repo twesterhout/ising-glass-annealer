@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "0.1.1.0"
+__version__ = "0.1.1.1"
 __author__ = "Tom Westerhout <14264576+twesterhout@users.noreply.github.com>"
 
 import ctypes
