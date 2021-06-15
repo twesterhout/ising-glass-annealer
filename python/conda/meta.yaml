@@ -8,12 +8,13 @@ source:
   path: ../
 
 build:
-  number: 3
+  number: 1
   run_exports:
     - python
   ignore_run_exports:
     - numpy
     - scipy
+    - loguru
  
 requirements:
   build:
@@ -24,6 +25,7 @@ requirements:
     - python
     - numpy
     - scipy
+    - loguru
 
   run:
     - gcc_impl_linux-64
@@ -31,3 +33,4 @@ requirements:
     - python
     - numpy
     - scipy
+    - loguru

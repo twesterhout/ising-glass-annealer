@@ -233,7 +233,7 @@ exponentialSchedule ::
 exponentialSchedule !β₀ !β₁ !numberSweeps
   | numberSweeps < 0 = error $ "invalid number of sweeps: " <> show numberSweeps
   | numberSweeps == 0 = \_ -> 0
-  | otherwise = \i -> (β₁ / β₀) ** (fromIntegral i / fromIntegral (numberSweeps - 1))
+  | otherwise = \i -> β₀ * (β₁ / β₀) ** (fromIntegral i / fromIntegral (numberSweeps - 1))
 
 withMutableState ::
   forall m b.
@@ -932,7 +932,7 @@ sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr currentE
   let n = dimension hamiltonian
       g₀ = CongruentialState seed
       sweeps = fromIntegral _sweeps
-      options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps) sweeps
+      options = SimulationOptions hamiltonian (linearSchedule β₀ β₁ sweeps) sweeps
   (x₀, g₁) <-
     if xPtr₀ == nullPtr
       then return $ randomConfiguration' n g₀
