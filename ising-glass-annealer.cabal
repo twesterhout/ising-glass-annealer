@@ -57,6 +57,7 @@ library
   exposed-modules:     Physics.Ising
   c-sources:           cbits/init.c
   build-depends:       vector
+                     , vector-algorithms
                      , deepseq
                      , primitive
                      , mtl

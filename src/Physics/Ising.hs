@@ -59,6 +59,8 @@ import Data.Primitive.Types (Prim, sizeOf)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 -- import qualified Data.Vector.Generic.Mutable
+
+import qualified Data.Vector.Algorithms.Intro as MV
 import Data.Vector.Storable (MVector (..), Storable, Vector)
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as MV
@@ -93,6 +95,12 @@ withMVector (MVector _ fp) = withForeignPtr fp
 indexVector :: (Storable a, Prim a) => Vector a -> Int -> a
 indexVector v i = unsafeInlineIO $ withVector v $ \p -> return $ P.indexOffPtr p i
 {-# INLINE indexVector #-}
+
+infixl 9 !
+
+(!) :: (Storable a, Prim a) => Vector a -> Int -> a
+(!) = indexVector
+{-# INLINE (!) #-}
 
 readVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> m a
 readVector v i = withMVector v $ \p -> P.readOffPtr p i
@@ -644,15 +652,13 @@ computeEnergyChanges hamiltonian configuration = V.generate n energyChangeUponFl
 -- Sparse matrices
 ----------------------------------------------------------------------------------------------------
 
-instance Storable a => IsList (COO a) where
+instance (Storable a, Prim a) => IsList (COO a) where
   type Item (COO a) = (Word32, Word32, a)
   fromList coo =
-    let noValue f (a₁, a₂, _) (b₁, b₂, _) = f (a₁, a₂) (b₁, b₂)
-        coo' = nubBySorted (noValue (==)) $ sortBy (noValue compare) coo
-        rowIndices = fromList $ (\(i, _, _) -> i) <$> coo'
-        columnIndices = fromList $ (\(_, j, _) -> j) <$> coo'
-        elements = fromList $ (\(_, _, e) -> e) <$> coo'
-     in COO rowIndices columnIndices elements
+    let rowIndices = fromList $ (\(i, _, _) -> i) <$> coo
+        columnIndices = fromList $ (\(_, j, _) -> j) <$> coo
+        elements = fromList $ (\(_, _, e) -> e) <$> coo
+     in mkCOO rowIndices columnIndices elements
   toList = error "toList is not implemented for COO"
 
 nubBySorted :: (a -> a -> Bool) -> [a] -> [a]
@@ -660,6 +666,68 @@ nubBySorted eq list = foldr acc [] list
   where
     acc x [] = [x]
     acc x ys@(y : _) = if eq x y then ys else x : ys
+
+sortedIndices :: Vector Word32 -> Vector Word32 -> Vector Int
+sortedIndices rowIndices columnIndices = runST $ do
+  let cmp x y = compare (rowIndices ! x, columnIndices ! x) (rowIndices ! y, columnIndices ! y)
+  order <- MV.generate (V.length rowIndices) id
+  MV.sortBy cmp order
+  V.unsafeFreeze order
+
+permute :: (Storable a, Prim a) => Vector a -> Vector Int -> Vector a
+permute xs order = V.map (xs !) order
+
+sortMatrix :: (Storable a, Prim a) => COO a -> COO a
+sortMatrix (COO rowIndices columnIndices elements) =
+  let order = sortedIndices rowIndices columnIndices
+   in COO
+        (permute rowIndices order)
+        (permute columnIndices order)
+        (permute elements order)
+
+hasDuplicates :: COO a -> Bool
+hasDuplicates (COO rowIndices columnIndices _) = go 1
+  where
+    n = V.length rowIndices
+    go !i
+      | i < n =
+        if rowIndices ! (i - 1) == rowIndices ! i
+          && columnIndices ! (i - 1) == columnIndices ! i
+          then True
+          else go (i + 1)
+      | otherwise = False
+
+checkDuplicates :: COO a -> COO a
+checkDuplicates matrix
+  | hasDuplicates matrix = error "COO matrix contains duplicate matrix elements"
+  | otherwise = matrix
+
+extractDiagonal :: (Num a, Storable a) => COO a -> (COO a, a)
+extractDiagonal (COO rowIndices columnIndices elements) =
+  (COO rowIndices' columnIndices' elements', diagonal)
+  where
+    isDiagonal !i = rowIndices ! i == columnIndices ! i
+    onlyOffDiagonal :: Storable a => Vector a -> Vector a
+    onlyOffDiagonal = V.ifilter (\i _ -> not $ isDiagonal i)
+    rowIndices' = onlyOffDiagonal rowIndices
+    columnIndices' = onlyOffDiagonal columnIndices
+    elements' = onlyOffDiagonal elements
+    diagonal = V.sum $ V.ifilter (\i _ -> isDiagonal i) elements
+{-# SCC extractDiagonal #-}
+
+mkCOO :: (Storable a, Prim a) => Vector Word32 -> Vector Word32 -> Vector a -> COO a
+mkCOO rowIndices columnIndices elements
+  | V.length rowIndices /= V.length columnIndices
+      || V.length rowIndices /= V.length elements =
+    error $
+      "lengths of rowIndices, columnIndices, and elements do not match: "
+        <> show (V.length rowIndices)
+        <> " vs. "
+        <> show (V.length columnIndices)
+        <> " vs. "
+        <> show (V.length elements)
+  | otherwise = checkDuplicates . sortMatrix $ COO rowIndices columnIndices elements
+{-# SCC mkCOO #-}
 
 -- | Return number of rows in the matrix
 numberRows :: CSR a -> Int
@@ -707,7 +775,7 @@ csrIsSymmetricBy equal csr = runIdentity $ csrFoldlM combine True csr
     combine False _ _ _ = return False
     combine True i j e
       | i >= j = return True
-      | otherwise = return $ maybe False (equal e) (csrIndex csr i j)
+      | otherwise = return $ maybe False (equal e) (csrIndex csr j i)
 
 csrIsSymmetric :: (Storable a, Eq a) => CSR a -> Bool
 csrIsSymmetric = csrIsSymmetricBy (==)
@@ -730,29 +798,29 @@ cooDim coo
     (n, m) = cooShape coo
 {-# INLINE cooDim #-}
 
-extractDiagonal :: (Num a, Prim a, Storable a) => COO a -> (COO a, a)
-extractDiagonal (COO rowIndices columnIndices elements) = runST $ do
-  let n = V.length rowIndices
-  rowIndices' <- MV.unsafeNew n
-  columnIndices' <- MV.unsafeNew n
-  elements' <- MV.unsafeNew n
-  let go !acc !offset !i
-        | i < n =
-          if indexVector rowIndices i == indexVector columnIndices i
-            then go (acc + indexVector elements i) offset (i + 1)
-            else do
-              writeVector rowIndices' offset $ indexVector rowIndices i
-              writeVector columnIndices' offset $ indexVector columnIndices i
-              writeVector elements' offset $ indexVector elements i
-              go acc (offset + 1) (i + 1)
-        | otherwise = return (acc, offset)
-  (trace, n') <- go 0 0 0
-  coo' <-
-    COO <$> V.unsafeFreeze (MV.unsafeTake n' rowIndices')
-      <*> V.unsafeFreeze (MV.unsafeTake n' columnIndices')
-      <*> V.unsafeFreeze (MV.unsafeTake n' elements')
-  return (coo', trace)
-{-# SCC extractDiagonal #-}
+-- extractDiagonal :: (Num a, Prim a, Storable a) => COO a -> (COO a, a)
+-- extractDiagonal (COO rowIndices columnIndices elements) = runST $ do
+--   let n = V.length rowIndices
+--   rowIndices' <- MV.unsafeNew n
+--   columnIndices' <- MV.unsafeNew n
+--   elements' <- MV.unsafeNew n
+--   let go !acc !offset !i
+--         | i < n =
+--           if indexVector rowIndices i == indexVector columnIndices i
+--             then go (acc + indexVector elements i) offset (i + 1)
+--             else do
+--               writeVector rowIndices' offset $ indexVector rowIndices i
+--               writeVector columnIndices' offset $ indexVector columnIndices i
+--               writeVector elements' offset $ indexVector elements i
+--               go acc (offset + 1) (i + 1)
+--         | otherwise = return (acc, offset)
+--   (trace, n') <- go 0 0 0
+--   coo' <-
+--     COO <$> V.unsafeFreeze (MV.unsafeTake n' rowIndices')
+--       <*> V.unsafeFreeze (MV.unsafeTake n' columnIndices')
+--       <*> V.unsafeFreeze (MV.unsafeTake n' elements')
+--   return (coo', trace)
+-- {-# SCC extractDiagonal #-}
 
 fromCOO :: Maybe Int -> COO a -> CSR a
 fromCOO dim coo = CSR elements columnIndices rowIndices
@@ -886,10 +954,11 @@ sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr num
   fields <- fromPtr (fromIntegral numberSpins) fieldPtr
   (matrix, trace) <-
     fmap extractDiagonal $
-      COO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
+      mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
         <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
         <*> fromPtr (fromIntegral numberCouplings) dataPtr
   let hamiltonian = Hamiltonian (fromCOO (Just (fromIntegral numberSpins)) matrix) fields trace
+  unless (csrIsSymmetric (hamiltonianExchange hamiltonian)) $ error "Hamiltonian is not symmetric"
   newStablePtr hamiltonian
 
 foreign export ccall sa_create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
