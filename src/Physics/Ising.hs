@@ -16,6 +16,7 @@ module Physics.Ising
     mkHamiltonian,
     computeEnergy,
     computeEnergyChanges,
+    computeOverlap,
 
     -- * Annealing schedule
     linearSchedule,
@@ -515,6 +516,17 @@ anneal' options init gen = do
   eBest <- unsafeFreezePrimArray $ bestEnergyHistory s
   return (xCurrent, xBest, eCurrent, eBest)
 -}
+
+computeOverlap :: Vector Double -> Configuration -> Double
+computeOverlap exact predicted@(Configuration array)
+  | V.length exact <= 64 * sizeofPrimArray array = let (s, n) = V.ifoldl' combine (0, 0) exact in s / n
+  | otherwise = error $ "lengths of 'exact' and 'predicted' do not match"
+  where
+    combine (s, n) i x' =
+      let y = fromIntegral $ unsafeIndex predicted i
+          x = signum x'
+          w = abs x' * abs x'
+       in (s + w * x * y, n + w)
 
 randomConfiguration' :: RandomGen g => Int -> g -> (Configuration, g)
 randomConfiguration' n g₀ = runST $ do
