@@ -65,7 +65,7 @@ import qualified Data.Text.IO as T
 -- import qualified Data.Vector.Generic.Mutable
 
 import qualified Data.Vector.Algorithms.Intro as MV
-import Data.Vector.Storable (MVector (..), Storable, Vector)
+import Data.Vector.Storable (MVector (..), Vector)
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as MV
 -- import Foreign.C.Types
@@ -75,6 +75,7 @@ import qualified Foreign.ForeignPtr
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr
 import Foreign.StablePtr
+import Foreign.Storable (Storable, peek)
 import GHC.Exts
 import GHC.Float
 -- import System.IO.Unsafe (unsafePerformIO)
@@ -1076,9 +1077,9 @@ sa_find_ground_state ::
   -- | Number sweeps
   Word32 ->
   -- | Initial β
-  Double ->
+  Ptr Double ->
   -- | Final β
-  Double ->
+  Ptr Double ->
   -- | Best configuration
   Ptr Word64 ->
   -- | Current energy history
@@ -1086,19 +1087,22 @@ sa_find_ground_state ::
   -- | Best energy history
   Ptr Double ->
   IO ()
-sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr currentEPtr bestEPtr = do
+sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps βPtr₀ βPtr₁ xPtr currentEPtr bestEPtr = do
   hamiltonian <- deRefStablePtr _hamiltonian
   let n = dimension hamiltonian
       g₀ = CongruentialState seed
       sweeps = fromIntegral _sweeps
-      options = SimulationOptions hamiltonian (linearSchedule β₀ β₁ sweeps) sweeps
+      (βEstimated₀, βEstimated₁) = estimateBetas hamiltonian
+  β₀ <- if βPtr₀ == nullPtr then return βEstimated₀ else peek βPtr₀
+  β₁ <- if βPtr₁ == nullPtr then return βEstimated₁ else peek βPtr₁
   (x₀, g₁) <-
     if xPtr₀ == nullPtr
       then return $ randomConfiguration' n g₀
       else do
         x <- configurationFromPtr n xPtr₀
         return (x, g₀)
-  let (_, (Configuration xBest), eCurrent, eBest, _) = runAnnealing options x₀ g₁
+  let options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps) sweeps
+      (_, (Configuration xBest), eCurrent, eBest, _) = runAnnealing options x₀ g₁
   copyPrimArrayToPtr xPtr xBest 0 (sizeofPrimArray xBest)
   let sizeOfDouble = let x = x :: Double in sizeOf x
   when (currentEPtr /= nullPtr) $
@@ -1108,4 +1112,4 @@ sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps β₀ β₁ xPtr currentE
     V.unsafeWith eBest $ \src ->
       copyBytes bestEPtr src (V.length eBest * sizeOfDouble)
 
-foreign export ccall sa_find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Double -> Double -> Ptr Word64 -> Ptr Double -> Ptr Double -> IO ()
+foreign export ccall sa_find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Ptr Double -> Ptr Double -> Ptr Word64 -> Ptr Double -> Ptr Double -> IO ()

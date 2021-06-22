@@ -2,6 +2,18 @@
 
 `ising-ground-state` uses [PVP Versioning][1].
 
+## 0.2.0.0
+
+* Add support for automatically estimating initial and final βs. C API functions
+  now receive pointers for β₀ and β₁ (passing `NULL` instructs the library to
+  compute it automatically).
+
+
+## 0.1.1.0
+
+* Fixed a bug in `exponentialSchedule`.
+* Switched to using `linearSchedule` in exported C API.
+
 ## 0.1.1.0
 
 * Haskell exposes energy history instead of just the lowest energy. Python

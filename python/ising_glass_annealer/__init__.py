@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "0.1.1.2"
+__version__ = "0.2.0.0"
 __author__ = "Tom Westerhout <14264576+twesterhout@users.noreply.github.com>"
 
 import ctypes
@@ -45,6 +45,7 @@ import scipy.sparse
 import subprocess
 import sys
 import time
+from typing import Optional
 import warnings
 import weakref
 
@@ -108,7 +109,7 @@ def __preprocess_library():
                                    c_uint32, POINTER(c_double)], c_void_p),
         ("sa_destroy_hamiltonian", [c_void_p], None),
         ("sa_find_ground_state", [c_void_p, POINTER(c_uint64), c_uint32,
-                                  c_uint32, c_double, c_double,
+                                  c_uint32, POINTER(c_double), POINTER(c_double),
                                   POINTER(c_uint64), POINTER(c_double), POINTER(c_double)], None),
     ]
     # fmt: on
@@ -164,21 +165,24 @@ class Hamiltonian:
         self._finalizer = weakref.finalize(self, _lib.sa_destroy_hamiltonian, self._payload)
         self.shape = exchange.shape
         self.dtype = np.float64
-        self._keep_alive = [exchange, field]
+        self.exchange = exhange
+        self.field = field
 
 
 def anneal(
     hamiltonian: Hamiltonian,
     x0=None,
-    seed: int = None,
+    seed: Optional[int] = None,
     number_sweeps: int = 2000,
-    beta0: float = 0.1,
-    beta1: float = 20000.0,
+    beta0: Optional[float] = None,
+    beta1: Optional[float] = None,
 ):
     tick = time.time()
     if not isinstance(hamiltonian, Hamiltonian):
         raise TypeError("'hamiltonian' must be a Hamiltonian, but got {}".format(type(hamiltonian)))
-    assert number_sweeps > 0
+    number_sweeps = int(number_sweeps)
+    if number_sweeps <= 0:
+        raise ValueError("'number_sweeps' must be positive, but got {}".format(number_sweeps))
     (n, _) = hamiltonian.shape
     number_words = (n + 63) // 64
     if x0 is not None:
@@ -200,8 +204,8 @@ def anneal(
         x0_ptr,
         seed,
         number_sweeps,
-        beta0,
-        beta1,
+        byref(beta0) if beta0 is not None else None,
+        byref(beta1) if beta1 is not None else None,
         configuration.ctypes.data_as(POINTER(c_uint64)),
         current_energy.ctypes.data_as(POINTER(c_double)),
         best_energy.ctypes.data_as(POINTER(c_double)),
