@@ -50,6 +50,7 @@ common common-options
                        TypeFamilies
                        DerivingVia
                        GeneralizedNewtypeDeriving
+                       TypeApplications
 
 library
   import:              common-options
@@ -73,6 +74,8 @@ executable ising-ground-state
   hs-source-dirs:      app
   main-is:             Main.hs
   build-depends:       ising-glass-annealer
+                     , vector
+                     , hdf5-hs
   ghc-options:         -threaded
                        -rtsopts
                        -with-rtsopts=-N

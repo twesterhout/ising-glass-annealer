@@ -13,16 +13,19 @@ module Physics.Ising
 
     -- * Hamiltonian
     Hamiltonian (..),
+    mkHamiltonian,
     computeEnergy,
     computeEnergyChanges,
 
     -- * Annealing schedule
     linearSchedule,
     exponentialSchedule,
+    estimateBetas,
 
     -- * Sparse matrices
     COO (..),
     CSR (..),
+    mkCOO,
     extractDiagonal,
     fromCOO,
     csrIsSymmetric,
@@ -81,7 +84,7 @@ import GHC.Float
 -- import System.Random.MWC
 import System.Random.Stateful
 import qualified Text.Read
-import Prelude hiding (init, toList, trace, words)
+import Prelude hiding (first, init, second, toList, trace, words)
 
 withForeignPtr :: PrimBase m => ForeignPtr a -> (Ptr a -> m b) -> m b
 withForeignPtr fp action = unsafeIOToPrim $ Foreign.ForeignPtr.withForeignPtr fp (unsafePrimToIO . action)
@@ -242,6 +245,11 @@ exponentialSchedule !β₀ !β₁ !numberSweeps
   | numberSweeps < 0 = error $ "invalid number of sweeps: " <> show numberSweeps
   | numberSweeps == 0 = \_ -> 0
   | otherwise = \i -> β₀ * (β₁ / β₀) ** (fromIntegral i / fromIntegral (numberSweeps - 1))
+
+estimateBetas :: Hamiltonian -> (Double, Double)
+estimateBetas hamiltonian = (log 2 / maxDeltaEnergy, log 100 / minDeltaEnergy)
+  where
+    (minDeltaEnergy, maxDeltaEnergy) = energyChangeBounds hamiltonian
 
 withMutableState ::
   forall m b.
@@ -648,6 +656,25 @@ computeEnergyChanges hamiltonian configuration = V.generate n energyChangeUponFl
               + 2 * indexVector (hamiltonianField hamiltonian) i
           )
 
+minEnergyChange :: Hamiltonian -> Int -> Double
+minEnergyChange hamiltonian i = 2 * max first second
+  where
+    first = abs $ indexVector (hamiltonianField hamiltonian) i
+    second = csrFoldRow (\(!z) i' j e -> if i' == j then z else min z (abs e)) (1 / 0) (hamiltonianExchange hamiltonian) i
+
+maxEnergyChange :: Hamiltonian -> Int -> Double
+maxEnergyChange hamiltonian i = 2 * (first + second)
+  where
+    first = abs $ indexVector (hamiltonianField hamiltonian) i
+    second = csrFoldRow (\(!z) i' j e -> if i' == j then z else z + abs e) 0 (hamiltonianExchange hamiltonian) i
+
+energyChangeBounds :: Hamiltonian -> (Double, Double)
+energyChangeBounds hamiltonian = (max lower (2.220446049250313e-16 * upper), upper)
+  where
+    n = dimension hamiltonian
+    lower = runIdentity $ fold1 0 (< n) (+ 1) (\z i -> return $ min z (minEnergyChange hamiltonian i)) (1 / 0)
+    upper = runIdentity $ fold1 0 (< n) (+ 1) (\z i -> return $ max z (maxEnergyChange hamiltonian i)) 0
+
 ----------------------------------------------------------------------------------------------------
 -- Sparse matrices
 ----------------------------------------------------------------------------------------------------
@@ -757,27 +784,62 @@ csrIndex csr i j
      in V.unsafeIndex (csrData csr) <$> binarySearch atIndex begin end (fromIntegral j)
   | otherwise = error $ "index out of bounds: " <> show i
 
-csrFoldlM :: (Storable a, Monad m) => (b -> Int -> Int -> a -> m b) -> b -> CSR a -> m b
-csrFoldlM f init matrix@(CSR elements columnIndices rowIndices) = foldlM foldlRow init [0 .. numberRows matrix - 1]
+fold1 :: Monad m => a -> (a -> Bool) -> (a -> a) -> (b -> a -> m b) -> b -> m b
+fold1 start cond inc combine init = go start init
   where
-    foldlRow z i =
-      let begin = fromIntegral $ V.unsafeIndex rowIndices i
-          end = fromIntegral $ V.unsafeIndex rowIndices (i + 1)
-          combine z' k =
-            let j = fromIntegral $ V.unsafeIndex columnIndices k
-                e = V.unsafeIndex elements k
-             in f z' i j e
-       in foldlM combine z [begin .. end - 1]
+    go !x !acc
+      | cond x = acc `combine` x >>= go (inc x)
+      | otherwise = return acc
+{-# INLINE fold1 #-}
 
-csrIsSymmetricBy :: Storable a => (a -> a -> Bool) -> CSR a -> Bool
-csrIsSymmetricBy equal csr = runIdentity $ csrFoldlM combine True csr
+-- loop1 :: Monad m => a -> (a -> Bool) -> (a -> a) -> (a -> m ()) -> m ()
+-- loop1 start cond inc f = go start
+--   where
+--     go !x
+--       | cond x = f x >> go (inc x)
+--       | otherwise = return ()
+-- {-# INLINE loop1 #-}
+
+csrFoldRowM :: forall a b m. (Storable a, Prim a, Monad m) => (b -> Int -> Int -> a -> m b) -> b -> CSR a -> Int -> m b
+csrFoldRowM f init (CSR elements columnIndices rowIndices) i = fold1 begin (< end) (+ 1) combine init
+  where
+    begin :: Int
+    !begin = fromIntegral $ indexVector rowIndices i
+    end :: Int
+    !end = fromIntegral $ indexVector rowIndices (i + 1)
+    combine :: b -> Int -> m b
+    combine !z !k =
+      let j = fromIntegral $ indexVector columnIndices k
+          e = indexVector elements k
+       in f z i j e
+
+csrFoldRow :: (Storable a, Prim a) => (b -> Int -> Int -> a -> b) -> b -> CSR a -> Int -> b
+csrFoldRow f z₀ matrix i₀ = runIdentity $ csrFoldRowM (\z i j e -> return $ f z i j e) z₀ matrix i₀
+
+csrFoldM :: (Storable a, Prim a, Monad m) => (b -> Int -> Int -> a -> m b) -> b -> CSR a -> m b
+csrFoldM f init matrix = fold1 0 (< numberRows matrix) (+ 1) (\z i -> csrFoldRowM f z matrix i) init
+
+-- csrFoldlM :: (Storable a, Monad m) => (b -> Int -> Int -> a -> m b) -> b -> CSR a -> m b
+-- csrFoldlM f init matrix@(CSR elements columnIndices rowIndices) = foldlM foldlRow init [0 .. numberRows matrix - 1]
+--   where
+--     foldlRow z i =
+--       let begin = fromIntegral $ V.unsafeIndex rowIndices i
+--           end = fromIntegral $ V.unsafeIndex rowIndices (i + 1)
+--           combine z' k =
+--             let j = fromIntegral $ V.unsafeIndex columnIndices k
+--                 e = V.unsafeIndex elements k
+--              in f z' i j e
+--        in foldlM combine z [begin .. end - 1]
+
+csrIsSymmetricBy :: (Storable a, Prim a) => (a -> a -> Bool) -> CSR a -> Bool
+csrIsSymmetricBy equal csr = runIdentity $ csrFoldM combine True csr
   where
     combine False _ _ _ = return False
     combine True i j e
       | i >= j = return True
       | otherwise = return $ maybe False (equal e) (csrIndex csr j i)
 
-csrIsSymmetric :: (Storable a, Eq a) => CSR a -> Bool
+csrIsSymmetric :: (Storable a, Prim a, Eq a) => CSR a -> Bool
 csrIsSymmetric = csrIsSymmetricBy (==)
 {-# INLINE csrIsSymmetric #-}
 {-# SCC csrIsSymmetric #-}
@@ -825,8 +887,13 @@ cooDim coo
 fromCOO :: Maybe Int -> COO a -> CSR a
 fromCOO dim coo = CSR elements columnIndices rowIndices
   where
+    inBounds :: Vector Word32 -> Int -> Bool
+    inBounds indices k = V.all (\x -> fromIntegral x < k) indices
     !n = case dim of
-      Just d -> d
+      Just d ->
+        if inBounds (cooRowIndices coo) d && inBounds (cooColumnIndices coo) d
+          then d
+          else error $ "rowIndices or columnIndices are out of bounds"
       Nothing -> cooDim coo
     !elements = cooData coo
     !columnIndices = cooColumnIndices coo
@@ -941,6 +1008,12 @@ uniformFloat01 !g =
 -- Foreign exported functions
 ----------------------------------------------------------------------------------------------------
 
+mkHamiltonian :: COO Double -> Vector Double -> Hamiltonian
+mkHamiltonian matrix field = Hamiltonian (fromCOO (Just numberSpins) matrix') field trace
+  where
+    numberSpins = V.length field
+    (matrix', trace) = extractDiagonal matrix
+
 sa_create_hamiltonian ::
   Word32 ->
   Ptr Word32 ->
@@ -952,12 +1025,17 @@ sa_create_hamiltonian ::
 sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr numberSpins fieldPtr = do
   let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
   fields <- fromPtr (fromIntegral numberSpins) fieldPtr
-  (matrix, trace) <-
-    fmap extractDiagonal $
-      mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
-        <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
-        <*> fromPtr (fromIntegral numberCouplings) dataPtr
-  let hamiltonian = Hamiltonian (fromCOO (Just (fromIntegral numberSpins)) matrix) fields trace
+  matrix <-
+    mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
+      <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
+      <*> fromPtr (fromIntegral numberCouplings) dataPtr
+  let hamiltonian = mkHamiltonian matrix fields
+  -- (matrix, trace) <-
+  --   fmap extractDiagonal $
+  --     mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
+  --       <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
+  --       <*> fromPtr (fromIntegral numberCouplings) dataPtr
+  -- let hamiltonian = Hamiltonian (fromCOO (Just (fromIntegral numberSpins)) matrix) fields trace
   unless (csrIsSymmetric (hamiltonianExchange hamiltonian)) $ error "Hamiltonian is not symmetric"
   newStablePtr hamiltonian
 
