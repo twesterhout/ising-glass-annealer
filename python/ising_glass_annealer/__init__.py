@@ -165,7 +165,7 @@ class Hamiltonian:
         self._finalizer = weakref.finalize(self, _lib.sa_destroy_hamiltonian, self._payload)
         self.shape = exchange.shape
         self.dtype = np.float64
-        self.exchange = exhange
+        self.exchange = exchange
         self.field = field
 
 
