@@ -14,21 +14,10 @@ main = do
     let !matrix = mkCOO (V.map fromIntegral rowIndices) (V.map fromIntegral columnIndices) elements
     (field :: Vector Double) <- H5.readDataset =<< H5.openDataset @Text file "field"
     -- (energy :: Vector Double) <- H5.readDataset =<< H5.openDataset @Text file "energy"
-    -- print energy
     return $ mkHamiltonian matrix field
-  let sweeps = 40000
-      -- options = SimulationOptions hamiltonian (linearSchedule 100.0 10000000.0 sweeps) sweeps
+  let sweeps = 10000
       (β₀, β₁) = estimateBetas hamiltonian
-      options2 = SimulationOptions hamiltonian (linearSchedule β₀ 400000 sweeps) sweeps
+      options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps) sweeps
   print (β₀, β₁)
-  -- let (_, !energy) = simpleGroundState options 46
-  let (_, !energy2) = simpleGroundState options2 49
-  -- print energy
-  print energy2
-
--- !h <- loadFromCSV "kagome_16.csv"
--- print $ csrIsSymmetric (hamiltonianExchange h)
--- let sweeps = 2000
---     options = SimulationOptions h (exponentialSchedule 0.1 20000.0 sweeps) sweeps
---     (_, !energy) = simpleGroundState options 46
--- print $ energy
+  let (_, !energy) = simpleGroundState options 48
+  print energy
