@@ -42,7 +42,7 @@ main = hspec $ do
               [0, 2, 4, 6]
           h = Hamiltonian matrix (V.replicate 3 0) 0
           c x = Configuration $ fromList [x]
-      fromCOO cooMatrix `shouldBe` matrix
+      fromCOO Nothing cooMatrix `shouldBe` matrix
       csrIsSymmetric matrix `shouldBe` True
       computeEnergy h (c 0) `shouldBe` 16
       computeEnergy h (c 1) `shouldBe` (-8)
