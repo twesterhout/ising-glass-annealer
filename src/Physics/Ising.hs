@@ -142,9 +142,10 @@ unsafeThaw (Configuration v) = MutableConfiguration <$> unsafeThawPrimArray v
 {-# INLINE unsafeThaw #-}
 
 thaw :: PrimMonad m => Configuration -> m (MutableConfiguration (PrimState m))
-thaw (Configuration v) = unsafeThaw (Configuration v')
-  where
-    v' = clonePrimArray v 0 (sizeofPrimArray v)
+thaw (Configuration v) = do
+  v' <- newPrimArray (sizeofPrimArray v)
+  copyPrimArray v' 0 v 0 (sizeofPrimArray v)
+  return (MutableConfiguration v')
 
 copy :: PrimMonad m => MutableConfiguration (PrimState m) -> MutableConfiguration (PrimState m) -> m ()
 copy (MutableConfiguration target) (MutableConfiguration source) =
@@ -359,6 +360,9 @@ runStep !hamiltonian !p !sweep !i !s = do
       when flag $ do
         copy (bestConfiguration s) x
         writeVector (bestEnergyHistory s) sweep e
+-- e' <- computeEnergy hamiltonian <$> unsafeFreeze (bestConfiguration s)
+-- unless (abs (e - e') < 1.0e-10) $
+--   error $ show e <> " vs. " <> show e'
 {-# INLINE runStep #-}
 {-# SCC runStep #-}
 
@@ -435,88 +439,6 @@ simpleGroundState :: SimulationOptions -> Word32 -> (Configuration, Double)
 simpleGroundState options seed =
   let (_, x, _, es) = simpleAnneal options seed
    in (x, V.unsafeIndex es (optionsNumberSweeps options))
-
-{-
-runStep ::
-  (StatefulGen g m, PrimBase m) =>
-  Hamiltonian ->
-  Double ->
-  Int ->
-  Int ->
-  g ->
-  MutableState (PrimState m) ->
-  m ()
-runStep !hamiltonian !β !sweep !i !gen !s = do
-  !accept <- shouldAccept gen β =<< readPrimArray (energyChanges s) i
-  {-# SCC "when1" #-} when accept $ do
-    let x = currentConfiguration s
-    unsafeFlip x i
-    recomputeEnergyChanges hamiltonian (energyChanges s) i =<< {-# SCC "unsafeFreeze" #-} unsafeFreeze x
-    -- energy <-
-    --   {-# SCC "readCurrent" #-}
-    --   (-) <$> readPrimArray (currentEnergyHistory s) sweep
-    --     <*> readPrimArray (energyChanges s) i
-    updateCurrent
-    energy <- readPrimArray (currentEnergyHistory s) sweep
-    {-# SCC "writeCurrent" #-} writePrimArray (currentEnergyHistory s) sweep energy
-    maybeUpdateBest x energy
-    -- !shouldAccept' <- {-# SCC "accept2" #-} (energy <) <$> readPrimArray (bestEnergyHistory s) sweep
-    -- {-# SCC "when2" #-} when shouldAccept' $ updateBest x energy
-  where
-    updateCurrent = do
-      e <- readPrimArray (currentEnergyHistory s) sweep
-      δe <- readPrimArray (energyChanges s) i
-      writePrimArray (currentEnergyHistory s) sweep (e - δe)
-    updateBest x e = do
-      copy (bestConfiguration s) x
-      writePrimArray (bestEnergyHistory s) sweep e
-    maybeUpdateBest x e = do
-      flag <- (e <) <$> readPrimArray (bestEnergyHistory s) sweep
-      when flag $ updateBest x e
-{-# INLINE runStep #-}
-{-# SCC runStep #-}
--}
-
-{-
-runSweep ::
-  (StatefulGen g m, PrimBase m) =>
-  MutablePrimArray (PrimState m) Int ->
-  Hamiltonian ->
-  Double ->
-  Int ->
-  g ->
-  MutableState (PrimState m) ->
-  m ()
-runSweep !order !hamiltonian !β !sweep !gen !s = do
-  -- let n = numberRows (hamiltonianExchange hamiltonian)
-  shuffleVector order gen
-  -- order <- randomPermutation n gen
-  unsafeFreezePrimArray order >>= \order' -> flip traversePrimArray_ order' $ \i ->
-    runStep hamiltonian β sweep i gen s
-{-# SCC runSweep #-}
--}
-
-{-
-anneal' ::
-  (StatefulGen g m, PrimBase m) =>
-  SimulationOptions ->
-  Configuration ->
-  g ->
-  m (Configuration, Configuration, PrimArray Double, PrimArray Double)
-anneal' options init gen = do
-  s <- createMutableState (optionsNumberSweeps options) (optionsHamiltonian options) init
-  order <- unsafeThawPrimArray $ initialOrder (dimension (optionsHamiltonian options))
-  -- probabilities <- newAlignedPinnedPrimArray (dimension (optionsHamiltonian options))
-  loopM_ 0 (optionsNumberSweeps options) $ \i -> do
-    runSweep order (optionsHamiltonian options) (optionsSchedule options i) i gen s
-    writePrimArray (currentEnergyHistory s) (i + 1) =<< readPrimArray (currentEnergyHistory s) i
-    writePrimArray (bestEnergyHistory s) (i + 1) =<< readPrimArray (bestEnergyHistory s) i
-  xCurrent <- unsafeFreeze $ currentConfiguration s
-  xBest <- unsafeFreeze $ bestConfiguration s
-  eCurrent <- unsafeFreezePrimArray $ currentEnergyHistory s
-  eBest <- unsafeFreezePrimArray $ bestEnergyHistory s
-  return (xCurrent, xBest, eCurrent, eBest)
--}
 
 computeOverlap :: Vector Double -> Configuration -> Double
 computeOverlap exact predicted@(Configuration array)
@@ -1103,6 +1025,14 @@ sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps βPtr₀ βPtr₁ xPtr cu
         return (x, g₀)
   let options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps) sweeps
       (_, (Configuration xBest), eCurrent, eBest, _) = runAnnealing options x₀ g₁
+      eBestEstimated = indexVector eBest sweeps
+      eBestMeasured = computeEnergy hamiltonian (Configuration xBest)
+  unless (abs (eBestEstimated - eBestMeasured) < 1.0e-10) $
+    error $
+      "This is a bug! Best spin configuration does not match the best energy: "
+        <> show eBestEstimated
+        <> " vs. "
+        <> show eBestMeasured
   copyPrimArrayToPtr xPtr xBest 0 (sizeofPrimArray xBest)
   let sizeOfDouble = let x = x :: Double in sizeOf x
   when (currentEPtr /= nullPtr) $
