@@ -1,27 +1,16 @@
--- {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Main (main) where
 
-import Data.Char (isAscii)
 import Data.Graph (topSort)
-import Data.Version (showVersion)
 import Distribution.InstalledPackageInfo
-  ( InstalledPackageInfo,
-    author,
-    copyright,
-    extraLibraries,
+  ( extraLibraries,
     hsLibraries,
     libraryDirs,
-    license,
-    sourcePackageId,
   )
-import Distribution.License (License (..))
 import Distribution.Package
-import Distribution.Package
-  ( PackageIdentifier (..),
-    PackageInstalled,
-    PackageName (..),
+  ( PackageInstalled,
+    getHSLibraryName,
   )
 import Distribution.PackageDescription (PackageDescription ())
 import Distribution.Simple
@@ -63,12 +52,9 @@ generateBuildModule verbosity pkgDesc lbi = do
   let installDirs = absoluteInstallDirs pkgDesc lbi NoCopyDest
 
   withLibLBI pkgDesc lbi $ \_ libLBI -> do
-    -- let thisLib = libPackageKey libLBI
     let thisLib = getHSLibraryName (componentUnitId libLBI)
-
     let pkgs = orderedPackagesList (installedPkgs lbi)
         libdirs = libdir installDirs : concatMap libraryDirs pkgs
-
         libNames = thisLib : map threadedVersion (concatMap hsLibraries pkgs)
         mkLibName x
           | fromFlagOrDefault
@@ -76,14 +62,6 @@ generateBuildModule verbosity pkgDesc lbi = do
               (configProfLib (configFlags lbi)) =
             x ++ "_p"
           | otherwise = x
-
-    -- case filter (not . goodLicense . license) pkgs of
-    --   []  -> return ()
-    --   bad -> print bad >> fail "BAD LICENSE"
-
-    -- rewriteFileEx (autodir </> "HS_COPYRIGHTS")
-    --     $ unlines
-    --     $ map licenseInfoString pkgs
 
     rewriteFileEx verbosity (autodir </> "HS_LIBRARIES_LIST") $
       unlines $
@@ -101,26 +79,6 @@ orderedPackagesList pkgs = lookupVertex <$> topSort g
   where
     (g, lookupVertex, _findVertex) = dependencyGraph pkgs
 
-goodLicense :: License -> Bool
-goodLicense BSD2 = True
-goodLicense BSD3 = True
-goodLicense MIT = True
-goodLicense ISC = True
-goodLicense _ = False
-
--- licenseInfoString :: InstalledPackageInfo -> String
--- licenseInfoString pkg = unwords
---   [ unPackageName (pkgName (sourcePackageId pkg)) ++
---     "-" ++
---     showVersion (pkgVersion (sourcePackageId pkg))
---   , "-"
---   , show (license pkg)
---   , "-"
---   , copyright pkg
---   , "-"
---   , author pkg
---   ]
-
 -- We needed the threaded run-time so that SIGINT can be handled
 -- cleanly when C code has called into Haskell
 threadedVersion :: String -> String
@@ -129,31 +87,3 @@ threadedVersion lib =
     "Cffi" -> "Cffi_thr"
     "HSrts" -> "HSrts_thr"
     _ -> lib
-
--- libPackageKey :: ComponentLocalBuildInfo -> String
--- libPackageKey x = $(
---   do mbSUI <- lookupValueName "SimpleUnitId"
---      mbCI  <- lookupValueName "ComponentId"
---      mbCUI <- lookupValueName "componentUnitId"
---      mbLN  <- lookupValueName "LibraryName"
---      mbCL  <- lookupValueName "componentLibraries"
---      y     <- newName "y"
---
---      case (mbSUI, mbCI, mbCUI, mbLN, mbCL) of
---
---        -- Cabal-1.24
---        (Just sui, Just ci, Just cui, _, _) ->
---             [| case $(varE cui) x of
---                 $(conP sui [conP ci [varP y]]) -> "HS" ++ $(varE y) |]
---
---        -- Cabal-1.22
---        (_,_,_,Just ln, Just cl) ->
---             [| case $(varE cl) x of
---                 [$(conP ln [varP y])] -> $(varE y)
---                 _ -> error "libPackageKey: bad componentLibraries" |]
---
---        _ -> fail "Setup.hs, libPackageKey: Unsupported Cabal version"
---   )
--- where
--- SimpleUnitId (ComponentId y) = componentUnitId x
--- [LibraryName y] = componentLibraries x
