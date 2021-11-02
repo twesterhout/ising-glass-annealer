@@ -7,7 +7,7 @@ import Physics.Ising
 
 main :: IO ()
 main = do
-  let filename = "app/problem_kagome_16.h5"
+  let filename = "app/problem_j1j2_4x4.h5"
   hamiltonian <- H5.withFile' filename H5.ReadOnly $ \file -> do
     (rowIndices :: Vector Int32) <- H5.readDataset =<< H5.openDataset @Text file "row_indices"
     (columnIndices :: Vector Int32) <- H5.readDataset =<< H5.openDataset @Text file "col_indices"

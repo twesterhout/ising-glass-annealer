@@ -586,7 +586,7 @@ computeEnergyChanges hamiltonian configuration = V.generate n energyChangeUponFl
     n = dimension hamiltonian
     σ i = fromIntegral $ unsafeIndex configuration i
     energyChangeUponFlip i =
-      - σ i
+      -σ i
         * ( 4 * matrixVectorProductElement (hamiltonianExchange hamiltonian) configuration i
               + 2 * indexVector (hamiltonianField hamiltonian) i
           )
@@ -1027,7 +1027,7 @@ sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps βPtr₀ βPtr₁ xPtr cu
       (_, (Configuration xBest), eCurrent, eBest, _) = runAnnealing options x₀ g₁
       eBestEstimated = indexVector eBest sweeps
       eBestMeasured = computeEnergy hamiltonian (Configuration xBest)
-  unless (abs (eBestEstimated - eBestMeasured) < 1.0e-10) $
+  unless (abs (eBestEstimated - eBestMeasured) < 1.0e-9) $
     error $
       "This is a bug! Best spin configuration does not match the best energy: "
         <> show eBestEstimated
