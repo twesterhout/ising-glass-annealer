@@ -8,7 +8,7 @@ source:
   path: ../
 
 build:
-  number: 1
+  number: 2
   run_exports:
     - python
   ignore_run_exports:
@@ -28,7 +28,7 @@ requirements:
     - loguru
 
   run:
-    - gcc_impl_linux-64
+    - sysroot_linux-64
     - numactl-cos6-x86_64
     - python
     - numpy

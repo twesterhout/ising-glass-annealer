@@ -3,9 +3,10 @@
 #include <stdio.h>
 
 void sa_init(void) {
-  int argc = 1;
-  char *argv[] = {"-N"};
-  hs_init(&argc, (char ***)&argv);
+  int argc = 2;
+  char *argv[] = {"+RTS", "-N", NULL};
+  char **pargv = argv;
+  hs_init(&argc, &pargv);
 }
 
 void sa_exit(void) { hs_exit(); }
