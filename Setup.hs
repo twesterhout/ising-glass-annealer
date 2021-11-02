@@ -53,7 +53,9 @@ generateBuildModule verbosity pkgDesc lbi = do
 
   withLibLBI pkgDesc lbi $ \_ libLBI -> do
     let thisLib = getHSLibraryName (componentUnitId libLBI)
-    let pkgs = orderedPackagesList (installedPkgs lbi)
+        pkgs = case dependencyClosure (installedPkgs lbi) (fst <$> componentPackageDeps libLBI) of
+          Left index -> orderedPackagesList index
+          Right _ -> error "Oops..."
         libdirs = libdir installDirs : concatMap libraryDirs pkgs
         libNames = thisLib : map threadedVersion (concatMap hsLibraries pkgs)
         mkLibName x
