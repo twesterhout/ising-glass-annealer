@@ -36,9 +36,10 @@ $(PREFIX)/include/ising_glass_annealer.h: cbits/ising_glass_annealer.h
 	install -m 644 $< $@
 
 $(PREFIX)/lib/lib$(LIBRARY_NAME).so: cbits/init.c $(CABAL_BUILD_DIR)/libHS$(PROJECT_NAME)* build/api.txt $(CABAL_AUTOGEN_DIR)/HS_LIBRARY_PATHS_LIST $(CABAL_AUTOGEN_DIR)/HS_LIBRARIES_LIST $(CABAL_AUTOGEN_DIR)/EXTRA_LIBRARIES_LIST
-	ghc --make -no-hs-main -shared -threaded \
+	mkdir -p $$(dirname $@)
+	ghc -v --make -no-hs-main -shared -threaded \
 		-fPIC -g -O2 -optc-O -fexpose-all-unfoldings -fspecialise-aggressively \
-		-pgmc $(CC) -pgml $(CC) \
+		-pgmP $(CC) -pgmc $(CC) -pgma $(CC) -pgml $(CC) \
 		-optl -Wl,--retain-symbols-file=build/api.txt \
 		$< -o $@ \
 		-L"$(CABAL_BUILD_DIR)" \
@@ -46,14 +47,14 @@ $(PREFIX)/lib/lib$(LIBRARY_NAME).so: cbits/init.c $(CABAL_BUILD_DIR)/libHS$(PROJ
 
 $(PKGCONFIG_FILE):
 	mkdir -p $$(dirname $(PKGCONFIG_FILE))
-	printf "# Generated automatically by Makefile\n"    >"$(PKGCONFIG_FILE)"
+	printf "# Generated automatically by Makefile\n"    > "$(PKGCONFIG_FILE)"
 	printf "prefix=$(PREFIX)\n"                        >> "$(PKGCONFIG_FILE)"
 	printf "libdir=${PREFIX}/lib\n"                    >> "$(PKGCONFIG_FILE)"
 	printf "includedir=$(PREFIX)/include\n"            >> "$(PKGCONFIG_FILE)"
 	printf "Name: $(LIBRARY_NAME)\n"                   >> "$(PKGCONFIG_FILE)"
 	printf "Description: See README\n"                 >> "$(PKGCONFIG_FILE)"
 	printf "Version: $(VERSION)\n"                     >> "$(PKGCONFIG_FILE)"
-	printf "Libs: -L\$${libdir} -l$${LIBRARY_NAME}\n"  >> "$(PKGCONFIG_FILE)"
+	printf "Libs: -L\$${libdir} -l$(LIBRARY_NAME)\n"   >> "$(PKGCONFIG_FILE)"
 	printf "Libs.private:\n"                           >> "$(PKGCONFIG_FILE)"
 	printf "Cflags: -I\$${includedir}\n"               >> "$(PKGCONFIG_FILE)"
 
