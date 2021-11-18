@@ -4,10 +4,6 @@ module Physics.Ising
   ( -- * Annealing
     Configuration (..),
     SimulationOptions (..),
-    -- anneal,
-    -- anneal',
-    -- simpleAnneal,
-    -- groundState,
     simpleGroundState,
     bruteForceSolve,
 
@@ -50,26 +46,16 @@ import Control.Exception (assert)
 import Control.Monad.Identity
 import Control.Monad.Primitive
 import Control.Monad.ST
--- import Control.Monad.State.Strict
 import Data.Bits
--- import Data.Coerce
--- import Data.Char (intToDigit)
--- import Data.Foldable (maximum)
-
--- import Data.Primitive.ByteArray (MutableByteArray (..), mutableByteArrayContents)
 import Data.Primitive.PrimArray
 import qualified Data.Primitive.Ptr as P
 import Data.Primitive.Types (Prim, sizeOf)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
--- import qualified Data.Vector.Generic.Mutable
-
 import qualified Data.Vector.Algorithms.Intro as MV
 import Data.Vector.Storable (MVector (..), Vector)
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as MV
--- import Foreign.C.Types
-
 import Foreign.ForeignPtr (ForeignPtr, newForeignPtr_)
 import qualified Foreign.ForeignPtr
 import Foreign.Marshal.Utils (copyBytes)
@@ -78,25 +64,28 @@ import Foreign.StablePtr
 import Foreign.Storable (Storable, peek)
 import GHC.Exts
 import GHC.Float
--- import System.IO.Unsafe (unsafePerformIO)
--- import qualified GHC.Show (show)
--- import Numeric (showIntAtBase)
-
--- import qualified Language.C.Inline as C
--- import System.Random.MWC
 import System.Random.Stateful
 import qualified Text.Read
 import Prelude hiding (first, init, second, toList, trace, words)
 
+-- | Similar to 'ForeignPtr.withForeignPtr' except that it works with any 'PrimBase'.
 withForeignPtr :: PrimBase m => ForeignPtr a -> (Ptr a -> m b) -> m b
-withForeignPtr fp action = unsafeIOToPrim $ Foreign.ForeignPtr.withForeignPtr fp (unsafePrimToIO . action)
+withForeignPtr fp action =
+  unsafeIOToPrim $
+    Foreign.ForeignPtr.withForeignPtr fp (unsafePrimToIO . action)
 
+-- | Similar to 'Data.Vector.Storable.unsafeWith' except that it works with any 'PrimBase'.
 withVector :: (PrimBase m, Storable a) => Vector a -> (Ptr a -> m b) -> m b
 withVector v = withForeignPtr (fst . V.unsafeToForeignPtr0 $ v)
+{-# INLINE withVector #-}
 
+-- | Similar to 'Data.Vector.Storable.Mutable.unsafeWith' except that it works with any 'PrimBase'.
 withMVector :: PrimBase m => MVector (PrimState m) a -> (Ptr a -> m b) -> m b
 withMVector (MVector _ fp) = withForeignPtr fp
+{-# INLINE withMVector #-}
 
+-- | Similar to 'Data.Vector.Storable.unsafeIndex' except that it works with @Prim a@ instead of
+-- @Storable a@ and avoids memory allocations.
 indexVector :: (Storable a, Prim a) => Vector a -> Int -> a
 indexVector v i = unsafeInlineIO $ withVector v $ \p -> return $ P.indexOffPtr p i
 {-# INLINE indexVector #-}
@@ -108,16 +97,26 @@ infixl 9 !
 {-# INLINE (!) #-}
 
 readVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> m a
-readVector v i = withMVector v $ \p -> P.readOffPtr p i
+readVector !v !i = withMVector v $ \p -> P.readOffPtr p i
+{-# INLINE readVector #-}
 
 writeVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> a -> m ()
-writeVector v i x = withMVector v $ \p -> P.writeOffPtr p i x
+writeVector !v !i !x = withMVector v $ \p -> P.writeOffPtr p i x
+{-# INLINE writeVector #-}
 
 modifyVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> (a -> a) -> Int -> m ()
-modifyVector v f i = writeVector v i =<< f <$> readVector v i
+modifyVector !v !f !i = writeVector v i =<< f <$> readVector v i
 {-# INLINE modifyVector #-}
 
-loopM_ :: Monad m => Int -> Int -> (Int -> m ()) -> m ()
+loopM_ ::
+  Monad m =>
+  -- | begin
+  Int ->
+  -- | end
+  Int ->
+  -- | loop body
+  (Int -> m ()) ->
+  m ()
 loopM_ !begin !end f = go begin
   where
     go !i
@@ -147,7 +146,13 @@ thaw (Configuration v) = do
   copyPrimArray v' 0 v 0 (sizeofPrimArray v)
   return (MutableConfiguration v')
 
-copy :: PrimMonad m => MutableConfiguration (PrimState m) -> MutableConfiguration (PrimState m) -> m ()
+copy ::
+  PrimMonad m =>
+  -- | destination
+  MutableConfiguration (PrimState m) ->
+  -- | source
+  MutableConfiguration (PrimState m) ->
+  m ()
 copy (MutableConfiguration target) (MutableConfiguration source) =
   assert (sizeofMutablePrimArray target == sizeofMutablePrimArray source) $
     copyMutablePrimArray target 0 source 0 (sizeofMutablePrimArray target)
@@ -218,6 +223,7 @@ data Hamiltonian = Hamiltonian
 -- | Return dimension of the Hamiltonian (i.e. number of spins in the system).
 dimension :: Hamiltonian -> Int
 dimension = V.length . hamiltonianField
+{-# INLINE dimension #-}
 
 linearSchedule ::
   -- | Initial β
@@ -249,6 +255,7 @@ exponentialSchedule !β₀ !β₁ !numberSweeps
   | numberSweeps == 0 = \_ -> 0
   | otherwise = \i -> β₀ * (β₁ / β₀) ** (fromIntegral i / fromIntegral (numberSweeps - 1))
 
+-- | Estimate initial and final β by looking at Hamiltonian matrix elements.
 estimateBetas :: Hamiltonian -> (Double, Double)
 estimateBetas hamiltonian = (log 2 / maxDeltaEnergy, log 100 / minDeltaEnergy)
   where
@@ -303,40 +310,55 @@ generateAcceptanceProbabilities ::
 generateAcceptanceProbabilities β probabilities g₀ = go g₀ 0
   where
     !n = MV.length probabilities
+    !pre = -1 / β
     go !g !i
       | i < n = do
-        let (!u, g') = uniformFloat01 g
-        writeVector probabilities i $ (-1 / β) * log (float2Double u)
+        let (!u, !g') = uniformFloat01 g
+        writeVector probabilities i $ pre * float2Double (log u)
         go g' (i + 1)
       | otherwise = return g
 {-# SCC generateAcceptanceProbabilities #-}
 
-recomputeEnergyChanges :: forall m. PrimBase m => Hamiltonian -> MVector (PrimState m) Double -> Int -> Configuration -> m ()
-recomputeEnergyChanges hamiltonian deltaEnergies i bits = do
+foreign import ccall unsafe "recomputeEnergyChanges"
+  c_recomputeEnergyChanges :: Ptr Double -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Word64 -> IO ()
+
+recomputeEnergyChanges ::
+  PrimBase m =>
+  Hamiltonian ->
+  MVector (PrimState m) Double ->
+  Int ->
+  Configuration ->
+  m ()
+recomputeEnergyChanges !hamiltonian !deltaEnergies !i !(Configuration bits) = do
   let (CSR elements columnIndices rowIndices) = hamiltonianExchange hamiltonian
-      begin = fromIntegral $ indexVector rowIndices i
-      end = fromIntegral $ indexVector rowIndices (i + 1)
-      pre = fromIntegral $ (-8) * unsafeIndex bits i
-      go !k
-        | k < end = do
-          let j = fromIntegral $ indexVector columnIndices k
-              coupling = indexVector elements k
-              σⱼ = fromIntegral $ unsafeIndex bits j
-          writeVector deltaEnergies j =<< (+ pre * coupling * σⱼ) <$> readVector deltaEnergies j
-          go (k + 1)
-        | otherwise = return ()
-  writeVector deltaEnergies i =<< (negate <$> readVector deltaEnergies i)
-  go begin
--- withVector elements $ \elementsPtr ->
---   withVector columnIndices $ \columnIndicesPtr ->
---     withVector rowIndices $ \rowIndicesPtr ->
---       recomputeEnergyChangesImpl
---         elementsPtr
---         columnIndicesPtr
---         rowIndicesPtr
---         i
---         bits
---         deltaEnergies
+  withVector elements $ \elementsPtr ->
+    withVector columnIndices $ \columnIndicesPtr ->
+      withVector rowIndices $ \rowIndicesPtr ->
+        withMVector deltaEnergies $ \deltaEnergiesPtr ->
+          unsafeIOToPrim $
+            c_recomputeEnergyChanges
+              elementsPtr
+              columnIndicesPtr
+              rowIndicesPtr
+              deltaEnergiesPtr
+              (fromIntegral i)
+              (primArrayContents bits)
+-- do
+--   let (CSR !elements !columnIndices !rowIndices) = hamiltonianExchange hamiltonian
+--       !begin = {-# SCC begin #-} fromIntegral $ indexVector rowIndices i
+--       !end = {-# SCC end #-} fromIntegral $ indexVector rowIndices (i + 1)
+--       !pre = {-# SCC pre #-} fromIntegral $ (-8) * unsafeIndex bits i
+--       go !k
+--         | k < end = do
+--           let !j = fromIntegral $ indexVector columnIndices k
+--               !coupling = indexVector elements k
+--               !σⱼ = fromIntegral $ unsafeIndex bits j
+--           -- {-# SCC modify1 #-} modifyVector deltaEnergies (+ pre * coupling * σⱼ) j
+--           {-# SCC modify1 #-} writeVector deltaEnergies j =<< (+ pre * coupling * σⱼ) <$> readVector deltaEnergies j
+--           go (k + 1)
+--         | otherwise = return ()
+--   {-# SCC modify2 #-} modifyVector deltaEnergies negate i
+--   {-# SCC loop1 #-} go begin
 {-# SCC recomputeEnergyChanges #-}
 {-# INLINEABLE recomputeEnergyChanges #-}
 
@@ -442,7 +464,8 @@ simpleGroundState options seed =
 
 computeOverlap :: Vector Double -> Configuration -> Double
 computeOverlap exact predicted@(Configuration array)
-  | V.length exact <= 64 * sizeofPrimArray array = let (s, n) = V.ifoldl' combine (0, 0) exact in s / n
+  | V.length exact <= 64 * sizeofPrimArray array =
+    let (s, n) = V.ifoldl' combine (0, 0) exact in s / n
   | otherwise = error $ "lengths of 'exact' and 'predicted' do not match"
   where
     combine (s, n) i x' =
@@ -473,45 +496,6 @@ randomConfiguration' n g₀ = runST $ do
   where
     blocks = n `div` 64
     rest = n `mod` 64
-
-{-
-randomConfiguration :: StatefulGen g m => Int -> g -> m Configuration
-randomConfiguration n gen = do
-  let blocks = n `div` 64
-      rest = n `mod` 64
-  completeWords <- replicateM blocks (uniformM gen)
-  if rest > 0
-    then do
-      lastWord <- uniformRM (0, 2 ^ rest - 1) gen
-      return . Configuration . fromList $ completeWords ++ [lastWord]
-    else return . Configuration . fromList $ completeWords
--}
-
-{-
-anneal ::
-  (StatefulGen g m, PrimBase m) =>
-  SimulationOptions ->
-  g ->
-  m (Configuration, Configuration, PrimArray Double, PrimArray Double)
-anneal options gen
-  | numberSpins == 0 = error $ "invalid number of spins: " <> show numberSpins
-  | otherwise = do
-    init <- randomConfiguration numberSpins gen
-    anneal' options init gen
-  where
-    numberSpins = dimension (optionsHamiltonian options)
--}
-
-{-
-groundState ::
-  (StatefulGen g m, PrimBase m) =>
-  SimulationOptions ->
-  g ->
-  m (Configuration, Double)
-groundState options gen = do
-  (_, x, _, es) <- anneal options gen
-  return (x, indexPrimArray es (optionsNumberSweeps options - 1))
--}
 
 bruteForceSolve :: Hamiltonian -> (Configuration, Double)
 bruteForceSolve hamiltonian
@@ -595,20 +579,34 @@ minEnergyChange :: Hamiltonian -> Int -> Double
 minEnergyChange hamiltonian i = 2 * max first second
   where
     first = abs $ indexVector (hamiltonianField hamiltonian) i
-    second = csrFoldRow (\(!z) i' j e -> if i' == j then z else min z (abs e)) (1 / 0) (hamiltonianExchange hamiltonian) i
+    second =
+      csrFoldRow
+        (\(!z) i' j e -> if i' == j then z else min z (abs e))
+        (1 / 0)
+        (hamiltonianExchange hamiltonian)
+        i
 
 maxEnergyChange :: Hamiltonian -> Int -> Double
 maxEnergyChange hamiltonian i = 2 * (first + second)
   where
     first = abs $ indexVector (hamiltonianField hamiltonian) i
-    second = csrFoldRow (\(!z) i' j e -> if i' == j then z else z + abs e) 0 (hamiltonianExchange hamiltonian) i
+    second =
+      csrFoldRow
+        (\(!z) i' j e -> if i' == j then z else z + abs e)
+        0
+        (hamiltonianExchange hamiltonian)
+        i
 
 energyChangeBounds :: Hamiltonian -> (Double, Double)
 energyChangeBounds hamiltonian = (max lower (2.220446049250313e-16 * upper), upper)
   where
     n = dimension hamiltonian
-    lower = runIdentity $ fold1 0 (< n) (+ 1) (\z i -> return $ min z (minEnergyChange hamiltonian i)) (1 / 0)
-    upper = runIdentity $ fold1 0 (< n) (+ 1) (\z i -> return $ max z (maxEnergyChange hamiltonian i)) 0
+    lower =
+      runIdentity $
+        fold1 0 (< n) (+ 1) (\z i -> return $ min z (minEnergyChange hamiltonian i)) (1 / 0)
+    upper =
+      runIdentity $
+        fold1 0 (< n) (+ 1) (\z i -> return $ max z (maxEnergyChange hamiltonian i)) 0
 
 ----------------------------------------------------------------------------------------------------
 -- Sparse matrices
@@ -735,7 +733,14 @@ fold1 start cond inc combine init = go start init
 --       | otherwise = return ()
 -- {-# INLINE loop1 #-}
 
-csrFoldRowM :: forall a b m. (Storable a, Prim a, Monad m) => (b -> Int -> Int -> a -> m b) -> b -> CSR a -> Int -> m b
+csrFoldRowM ::
+  forall a b m.
+  (Storable a, Prim a, Monad m) =>
+  (b -> Int -> Int -> a -> m b) ->
+  b ->
+  CSR a ->
+  Int ->
+  m b
 csrFoldRowM f init (CSR elements columnIndices rowIndices) i = fold1 begin (< end) (+ 1) combine init
   where
     begin :: Int
@@ -753,18 +758,6 @@ csrFoldRow f z₀ matrix i₀ = runIdentity $ csrFoldRowM (\z i j e -> return $ 
 
 csrFoldM :: (Storable a, Prim a, Monad m) => (b -> Int -> Int -> a -> m b) -> b -> CSR a -> m b
 csrFoldM f init matrix = fold1 0 (< numberRows matrix) (+ 1) (\z i -> csrFoldRowM f z matrix i) init
-
--- csrFoldlM :: (Storable a, Monad m) => (b -> Int -> Int -> a -> m b) -> b -> CSR a -> m b
--- csrFoldlM f init matrix@(CSR elements columnIndices rowIndices) = foldlM foldlRow init [0 .. numberRows matrix - 1]
---   where
---     foldlRow z i =
---       let begin = fromIntegral $ V.unsafeIndex rowIndices i
---           end = fromIntegral $ V.unsafeIndex rowIndices (i + 1)
---           combine z' k =
---             let j = fromIntegral $ V.unsafeIndex columnIndices k
---                 e = V.unsafeIndex elements k
---              in f z' i j e
---        in foldlM combine z [begin .. end - 1]
 
 csrIsSymmetricBy :: (Storable a, Prim a) => (a -> a -> Bool) -> CSR a -> Bool
 csrIsSymmetricBy equal csr = runIdentity $ csrFoldM combine True csr
@@ -794,30 +787,6 @@ cooDim coo
   where
     (n, m) = cooShape coo
 {-# INLINE cooDim #-}
-
--- extractDiagonal :: (Num a, Prim a, Storable a) => COO a -> (COO a, a)
--- extractDiagonal (COO rowIndices columnIndices elements) = runST $ do
---   let n = V.length rowIndices
---   rowIndices' <- MV.unsafeNew n
---   columnIndices' <- MV.unsafeNew n
---   elements' <- MV.unsafeNew n
---   let go !acc !offset !i
---         | i < n =
---           if indexVector rowIndices i == indexVector columnIndices i
---             then go (acc + indexVector elements i) offset (i + 1)
---             else do
---               writeVector rowIndices' offset $ indexVector rowIndices i
---               writeVector columnIndices' offset $ indexVector columnIndices i
---               writeVector elements' offset $ indexVector elements i
---               go acc (offset + 1) (i + 1)
---         | otherwise = return (acc, offset)
---   (trace, n') <- go 0 0 0
---   coo' <-
---     COO <$> V.unsafeFreeze (MV.unsafeTake n' rowIndices')
---       <*> V.unsafeFreeze (MV.unsafeTake n' columnIndices')
---       <*> V.unsafeFreeze (MV.unsafeTake n' elements')
---   return (coo', trace)
--- {-# SCC extractDiagonal #-}
 
 fromCOO :: Maybe Int -> COO a -> CSR a
 fromCOO dim coo = CSR elements columnIndices rowIndices
@@ -924,20 +893,23 @@ uniformWord32R' !r !g₀ = go g₀
           (m :: Word64) = fromIntegral r * fromIntegral w
        in (fromIntegral (m `shiftR` 32), g')
 
-wordToFloat :: Word32 -> Float
-wordToFloat x = (fromIntegral i * m_inv_32) + 0.5 + m_inv_33
-  where
-    m_inv_33 = 1.16415321826934814453125e-10
-    m_inv_32 = 2.3283064365386962890625e-10
-    i = fromIntegral x :: Int32
-{-# INLINE wordToFloat #-}
+foreign import ccall unsafe "wordToFloat" wordToFloat :: Word32 -> Float
+
+-- wordToFloat :: Word32 -> Float
+-- wordToFloat x = (fromIntegral i * m_inv_32) + 0.5 + m_inv_33
+--   where
+--     m_inv_33 = 1.16415321826934814453125e-10
+--     m_inv_32 = 2.3283064365386962890625e-10
+--     i = fromIntegral x :: Int32
+-- {-# INLINE wordToFloat #-}
 
 uniformFloat01 :: RandomGen g => g -> (Float, g)
 uniformFloat01 !g =
-  let (w, g') = genWord32 g
+  let !(w, g') = genWord32 g
    in (wordToFloat w, g')
 {-# INLINE uniformFloat01 #-}
-{-# SCC uniformFloat01 #-}
+
+-- {-# SCC uniformFloat01 #-}
 
 ----------------------------------------------------------------------------------------------------
 -- Foreign exported functions
@@ -957,22 +929,17 @@ sa_create_hamiltonian ::
   Word32 ->
   Ptr Double ->
   IO (StablePtr Hamiltonian)
-sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr numberSpins fieldPtr = do
-  let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
-  fields <- fromPtr (fromIntegral numberSpins) fieldPtr
-  matrix <-
-    mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
-      <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
-      <*> fromPtr (fromIntegral numberCouplings) dataPtr
-  let hamiltonian = mkHamiltonian matrix fields
-  -- (matrix, trace) <-
-  --   fmap extractDiagonal $
-  --     mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
-  --       <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
-  --       <*> fromPtr (fromIntegral numberCouplings) dataPtr
-  -- let hamiltonian = Hamiltonian (fromCOO (Just (fromIntegral numberSpins)) matrix) fields trace
-  unless (csrIsSymmetric (hamiltonianExchange hamiltonian)) $ error "Hamiltonian is not symmetric"
-  newStablePtr hamiltonian
+sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr numberSpins fieldPtr =
+  do
+    let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
+    fields <- fromPtr (fromIntegral numberSpins) fieldPtr
+    matrix <-
+      mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
+        <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
+        <*> fromPtr (fromIntegral numberCouplings) dataPtr
+    let hamiltonian = mkHamiltonian matrix fields
+    unless (csrIsSymmetric (hamiltonianExchange hamiltonian)) $ error "Hamiltonian is not symmetric"
+    newStablePtr hamiltonian
 
 foreign export ccall sa_create_hamiltonian :: Word32 -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Double -> IO (StablePtr Hamiltonian)
 
