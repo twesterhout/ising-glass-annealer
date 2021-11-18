@@ -1,6 +1,6 @@
 cabal-version:         2.4
 name:                  ising-glass-annealer
-version:               0.2.0.0
+version:               0.2.0.2
 synopsis:              See README for more info
 description:           See README for more info
 license:               BSD-3-Clause
@@ -14,6 +14,11 @@ extra-doc-files:       README.md
                        CHANGELOG.md
 tested-with:           GHC == 8.8.4
                        GHC == 8.10.4
+
+flag build-example
+  description: Build ising-ground-state executable
+  manual: True
+  default: False
 
 custom-setup
   setup-depends:       base, containers, Cabal, filepath
@@ -63,12 +68,11 @@ library
                      , random >= 1.2.0
                      , mwc-random
                      , text
-                     -- , ghc-dump-core
-                     -- , ghc-dump-util
-                     -- , inline-c
 
 executable ising-ground-state
   import:              common-options
+  if !flag(build-example)
+    buildable:         False
   hs-source-dirs:      app
   main-is:             Main.hs
   build-depends:       ising-glass-annealer
