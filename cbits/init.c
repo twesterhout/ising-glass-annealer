@@ -11,5 +11,6 @@ void sa_init(void) {
 
 void sa_exit(void) { hs_exit(); }
 
-void const *sa_symbol_table[] = {
-    &sa_create_hamiltonian, &sa_destroy_hamiltonian, &sa_find_ground_state};
+void const *sa_symbol_table[] = {&sa_create_hamiltonian,
+                                 &sa_destroy_hamiltonian, &sa_find_ground_state,
+                                 &sa_anneal};

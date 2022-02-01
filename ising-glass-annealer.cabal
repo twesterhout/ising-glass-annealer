@@ -68,11 +68,12 @@ library
                      , random >= 1.2.0
                      , mwc-random
                      , text
+                     , unliftio
 
 executable ising-ground-state
   import:              common-options
-  if !flag(build-example)
-    buildable:         False
+  -- if !flag(build-example)
+  --   buildable:         False
   hs-source-dirs:      app
   main-is:             Main.hs
   build-depends:       ising-glass-annealer

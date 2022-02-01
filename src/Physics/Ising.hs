@@ -1,9 +1,14 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module Physics.Ising
   ( -- * Annealing
     Configuration (..),
     SimulationOptions (..),
+    annealParallel,
     simpleGroundState,
     bruteForceSolve,
 
@@ -42,11 +47,12 @@ module Physics.Ising
   )
 where
 
-import Control.Exception (assert)
+import Control.Exception (assert, evaluate)
 import Control.Monad.Identity
 import Control.Monad.Primitive
 import Control.Monad.ST
 import Data.Bits
+import qualified Data.List
 import Data.Primitive.PrimArray
 import qualified Data.Primitive.Ptr as P
 import Data.Primitive.Types (Prim, sizeOf)
@@ -64,8 +70,10 @@ import Foreign.StablePtr
 import Foreign.Storable (Storable, peek)
 import GHC.Exts
 import GHC.Float
+import System.IO.Unsafe (unsafePerformIO)
 import System.Random.Stateful
 import qualified Text.Read
+import UnliftIO.Async (pooledMapConcurrently)
 import Prelude hiding (first, init, second, toList, trace, words)
 
 -- | Similar to 'ForeignPtr.withForeignPtr' except that it works with any 'PrimBase'.
@@ -73,6 +81,7 @@ withForeignPtr :: PrimBase m => ForeignPtr a -> (Ptr a -> m b) -> m b
 withForeignPtr fp action =
   unsafeIOToPrim $
     Foreign.ForeignPtr.withForeignPtr fp (unsafePrimToIO . action)
+{-# INLINE withForeignPtr #-}
 
 -- | Similar to 'Data.Vector.Storable.unsafeWith' except that it works with any 'PrimBase'.
 withVector :: (PrimBase m, Storable a) => Vector a -> (Ptr a -> m b) -> m b
@@ -128,9 +137,10 @@ loopM_ !begin !end f = go begin
 -- Every spin is represented by a single bit: @bit=0@ means @spin=-1@ and
 -- @bit=1@ means @spin=1@.
 newtype Configuration = Configuration (PrimArray Word64)
-  deriving newtype (Eq, Show)
+  deriving newtype (Eq, Show, NFData)
 
 newtype MutableConfiguration s = MutableConfiguration (MutablePrimArray s Word64)
+  deriving newtype (NFData)
 
 unsafeFreeze :: PrimMonad m => MutableConfiguration (PrimState m) -> m Configuration
 unsafeFreeze (MutableConfiguration v) = Configuration <$> unsafeFreezePrimArray v
@@ -183,12 +193,29 @@ unsafeFlip !(MutableConfiguration v) !i =
 -- It contains current and best spin configurations, histories of current and
 -- best energies, and a vector of precomputed ΔE as suggested in [...].
 data MutableState s = MutableState
-  { currentConfiguration :: !(MutableConfiguration s),
-    bestConfiguration :: !(MutableConfiguration s),
-    currentEnergyHistory :: !(MVector s Double),
-    bestEnergyHistory :: !(MVector s Double),
-    energyChanges :: !(MVector s Double)
+  { currentConfiguration :: {-# UNPACK #-} !(MutableConfiguration s),
+    bestConfiguration :: {-# UNPACK #-} !(MutableConfiguration s),
+    currentEnergyHistory :: {-# UNPACK #-} !(MVector s Double),
+    bestEnergyHistory :: {-# UNPACK #-} !(MVector s Double),
+    energyChanges :: {-# UNPACK #-} !(MVector s Double),
+    msOrder :: {-# UNPACK #-} !(MVector s Int),
+    msProbabilities :: {-# UNPACK #-} !(MVector s Double)
   }
+  deriving stock (Generic)
+  deriving anyclass (NFData)
+
+data MutableState' s = MutableState'
+  { msCurrent :: {-# UNPACK #-} !(MutableConfiguration s),
+    msAccumulator :: {-# UNPACK #-} !(Ptr Double),
+    msEnergyChanges :: {-# UNPACK #-} !(Ptr Double),
+    msBest :: {-# UNPACK #-} !(MutableConfiguration s),
+    msOrder' :: {-# UNPACK #-} !(Ptr Int),
+    msProbabilities' :: {-# UNPACK #-} !(Ptr Double),
+    msCurrentEnergyHistory :: {-# UNPACK #-} !(Ptr Double),
+    msBestEnergyHistory :: {-# UNPACK #-} !(Ptr Double)
+  }
+  deriving stock (Generic)
+  deriving anyclass (NFData)
 
 -- | Annealing options
 data SimulationOptions = SimulationOptions
@@ -196,6 +223,8 @@ data SimulationOptions = SimulationOptions
     optionsSchedule :: !(Int -> Double),
     optionsNumberSweeps :: !Int
   }
+  deriving stock (Generic)
+  deriving anyclass (NFData)
 
 -- | Sparse matrix in Compressed Sparse Row (CSR) format.
 data CSR a = CSR
@@ -203,7 +232,8 @@ data CSR a = CSR
     csrColumnIndices :: {-# UNPACK #-} !(Vector Word32),
     csrRowIndices :: {-# UNPACK #-} !(Vector Word32)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (NFData)
 
 -- | Sparse matrix in Coordinate format.
 data COO a = COO
@@ -211,14 +241,16 @@ data COO a = COO
     cooColumnIndices :: {-# UNPACK #-} !(Vector Word32),
     cooData :: {-# UNPACK #-} !(Vector a)
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (NFData)
 
 data Hamiltonian = Hamiltonian
   { hamiltonianExchange :: {-# UNPACK #-} !(CSR Double),
     hamiltonianField :: {-# UNPACK #-} !(Vector Double),
     hamiltonianOffset :: {-# UNPACK #-} !Double
   }
-  deriving stock (Show)
+  deriving stock (Show, Generic)
+  deriving anyclass (NFData)
 
 -- | Return dimension of the Hamiltonian (i.e. number of spins in the system).
 dimension :: Hamiltonian -> Int
@@ -261,6 +293,12 @@ estimateBetas hamiltonian = (log 2 / maxDeltaEnergy, log 100 / minDeltaEnergy)
   where
     (minDeltaEnergy, maxDeltaEnergy) = energyChangeBounds hamiltonian
 
+almostEqual :: Double -> Double -> Bool
+almostEqual a b = abs (a - b) < atol + rtol + max (abs a) (abs b)
+  where
+    !atol = 1.0e-12
+    !rtol = 1.0e-9
+
 withMutableState ::
   forall m b.
   PrimBase m =>
@@ -275,15 +313,26 @@ withMutableState !numberSweeps !hamiltonian !x₀ action = do
   eCurrent <- MV.unsafeNew (numberSweeps + 1)
   eBest <- MV.unsafeNew (numberSweeps + 1)
   deltaEnergies <- V.unsafeThaw $ computeEnergyChanges hamiltonian x₀
+  let numberSpins = dimension hamiltonian
+  order <- MV.generate numberSpins id
+  probabilities <- MV.unsafeNew numberSpins
   let e = computeEnergy hamiltonian x₀
   writeVector eCurrent 0 e
   writeVector eBest 0 e
-  r <- action $ MutableState xCurrent xBest eCurrent eBest deltaEnergies
-  (,,,,) <$> unsafeFreeze xCurrent
-    <*> unsafeFreeze xBest
-    <*> V.unsafeFreeze eCurrent
-    <*> V.unsafeFreeze eBest
-    <*> pure r
+  r <- action $ MutableState xCurrent xBest eCurrent eBest deltaEnergies order probabilities
+  xCurrent' <- unsafeFreeze xCurrent
+  xBest' <- unsafeFreeze xBest
+  eCurrent' <- V.unsafeFreeze eCurrent
+  eBest' <- V.unsafeFreeze eBest
+  let eBestEstimated = indexVector eBest' numberSweeps
+      eBestMeasured = computeEnergy hamiltonian xBest'
+  unless (eBestEstimated `almostEqual` eBestMeasured) $
+    error $
+      "This is a bug! Best spin configuration does not match the best energy: "
+        <> show eBestEstimated
+        <> " vs. "
+        <> show eBestMeasured
+  pure (xCurrent', xBest', eCurrent', eBest', r)
 
 unsafeSwap :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> Int -> m ()
 unsafeSwap v !i !j = do
@@ -293,30 +342,49 @@ unsafeSwap v !i !j = do
   writeVector v j a
 {-# INLINE unsafeSwap #-}
 
-shuffleVector :: (PrimBase m, RandomGen g) => MVector (PrimState m) Int -> g -> m g
-shuffleVector !v !g₀ = go g₀ n
+shuffleVector' :: (PrimBase m, RandomGen g) => Int -> Ptr Int -> g -> m g
+shuffleVector' !n !v !g₀ = go g₀ n
   where
-    !n = MV.length v - 1 -- sizeofMutablePrimArray v - 1
+    swap !i !j = do
+      a <- P.readOffPtr v i
+      b <- P.readOffPtr v j
+      P.writeOffPtr v i b
+      P.writeOffPtr v j a
     go !g !j
       | j > 0 = do
         let (i, g') = uniformWord32R' (fromIntegral j) g
-        unsafeSwap v j (fromIntegral i)
+        swap (fromIntegral i) j
         go g' (j - 1)
       | otherwise = return g
+{-# SCC shuffleVector' #-}
+
+shuffleVector :: (PrimBase m, RandomGen g) => MVector (PrimState m) Int -> g -> m g
+shuffleVector !v !g₀ = withMVector v $ \ptr ->
+  shuffleVector' n ptr g₀
+  where
+    !n = MV.length v - 1 -- sizeofMutablePrimArray v - 1
 {-# SCC shuffleVector #-}
 
-generateAcceptanceProbabilities ::
-  (RandomGen g, PrimBase m) => Double -> MVector (PrimState m) Double -> g -> m g
-generateAcceptanceProbabilities β probabilities g₀ = go g₀ 0
+generateAcceptanceProbabilities' ::
+  (RandomGen g, PrimBase m) => Double -> Int -> Ptr Double -> g -> m g
+generateAcceptanceProbabilities' β n probabilities g₀ = go g₀ 0
   where
-    !n = MV.length probabilities
     !pre = -1 / β
     go !g !i
       | i < n = do
         let (!u, !g') = uniformFloat01 g
-        writeVector probabilities i $ pre * float2Double (log u)
+        P.writeOffPtr probabilities i $ pre * float2Double (log u)
         go g' (i + 1)
       | otherwise = return g
+{-# SCC generateAcceptanceProbabilities' #-}
+
+generateAcceptanceProbabilities ::
+  (RandomGen g, PrimBase m) => Double -> MVector (PrimState m) Double -> g -> m g
+generateAcceptanceProbabilities β probabilities g₀ =
+  withMVector probabilities $ \probabilitiesPtr ->
+    generateAcceptanceProbabilities' β n probabilitiesPtr g₀
+  where
+    !n = MV.length probabilities
 {-# SCC generateAcceptanceProbabilities #-}
 
 foreign import ccall unsafe "recomputeEnergyChanges"
@@ -329,20 +397,33 @@ recomputeEnergyChanges ::
   Int ->
   Configuration ->
   m ()
-recomputeEnergyChanges !hamiltonian !deltaEnergies !i !(Configuration bits) = do
+recomputeEnergyChanges !hamiltonian !deltaEnergies !i !x =
+  withMVector deltaEnergies $ \deltaEnergiesPtr ->
+    recomputeEnergyChanges' hamiltonian deltaEnergiesPtr i x
+
+recomputeEnergyChanges' ::
+  PrimBase m =>
+  Hamiltonian ->
+  Ptr Double ->
+  Int ->
+  Configuration ->
+  m ()
+recomputeEnergyChanges' !hamiltonian !deltaEnergiesPtr !i !(Configuration bits) = do
   let (CSR elements columnIndices rowIndices) = hamiltonianExchange hamiltonian
   withVector elements $ \elementsPtr ->
     withVector columnIndices $ \columnIndicesPtr ->
       withVector rowIndices $ \rowIndicesPtr ->
-        withMVector deltaEnergies $ \deltaEnergiesPtr ->
-          unsafeIOToPrim $
-            c_recomputeEnergyChanges
-              elementsPtr
-              columnIndicesPtr
-              rowIndicesPtr
-              deltaEnergiesPtr
-              (fromIntegral i)
-              (primArrayContents bits)
+        unsafeIOToPrim $
+          c_recomputeEnergyChanges
+            elementsPtr
+            columnIndicesPtr
+            rowIndicesPtr
+            deltaEnergiesPtr
+            (fromIntegral i)
+            (primArrayContents bits)
+{-# SCC recomputeEnergyChanges' #-}
+{-# INLINEABLE recomputeEnergyChanges' #-}
+
 -- do
 --   let (CSR !elements !columnIndices !rowIndices) = hamiltonianExchange hamiltonian
 --       !begin = {-# SCC begin #-} fromIntegral $ indexVector rowIndices i
@@ -359,29 +440,178 @@ recomputeEnergyChanges !hamiltonian !deltaEnergies !i !(Configuration bits) = do
 --         | otherwise = return ()
 --   {-# SCC modify2 #-} modifyVector deltaEnergies negate i
 --   {-# SCC loop1 #-} go begin
-{-# SCC recomputeEnergyChanges #-}
-{-# INLINEABLE recomputeEnergyChanges #-}
 
-runStep :: PrimBase m => Hamiltonian -> Double -> Int -> Int -> MutableState (PrimState m) -> m ()
-runStep !hamiltonian !p !sweep !i !s = do
-  accept <- (< p) <$> readVector (energyChanges s) i
-  when accept $ do
-    let x = currentConfiguration s
-    unsafeFlip x i
-    recomputeEnergyChanges hamiltonian (energyChanges s) i =<< unsafeFreeze x
-    updateCurrent
-    maybeUpdateBest x
+data Accumulator = Accumulator {-# UNPACK #-} !Double {-# UNPACK #-} !Double
+
+unAccumulator :: Accumulator -> Double
+unAccumulator (Accumulator t _) = t
+{-# INLINE unAccumulator #-}
+
+fast2sum :: Double -> Double -> Accumulator
+fast2sum !a !b = Accumulator s t
   where
-    updateCurrent = do
-      e <- readVector (currentEnergyHistory s) sweep
-      δe <- readVector (energyChanges s) i
-      writeVector (currentEnergyHistory s) sweep (e - δe)
-    maybeUpdateBest x = do
-      e <- readVector (currentEnergyHistory s) sweep
-      flag <- (e <) <$> readVector (bestEnergyHistory s) sweep
-      when flag $ do
-        copy (bestConfiguration s) x
-        writeVector (bestEnergyHistory s) sweep e
+    !s = a + b
+    !z = s - a
+    !t = b - z
+{-# INLINE fast2sum #-}
+
+add :: Accumulator -> Double -> Accumulator
+add (Accumulator t c) !x = fast2sum t (x + c)
+{-# INLINE add #-}
+
+data StepState = StepState {-# UNPACK #-} !Accumulator {-# UNPACK #-} !Double
+
+runStep' ::
+  PrimBase m =>
+  Hamiltonian ->
+  MutableState' (PrimState m) ->
+  Int ->
+  m ()
+runStep' hamiltonian s !k = do
+  let i = P.indexOffPtr (msOrder' s) k
+      p = P.indexOffPtr (msProbabilities' s) k
+      δe = P.indexOffPtr (msEnergyChanges s) i
+      acc = msAccumulator s
+  if δe < p
+    then do
+      let x = msCurrent s
+      unsafeFlip x i
+      unsafeFreeze x >>= recomputeEnergyChanges' hamiltonian (msEnergyChanges s) i
+      t' <- (+ δe) <$> P.readOffPtr acc 0
+      eBest <- P.readOffPtr acc 2
+      P.writeOffPtr acc 0 t'
+      if t' < eBest
+        then do
+          P.writeOffPtr acc 2 t'
+          copy (msBest s) (msCurrent s)
+        else pure ()
+    else pure ()
+{-# INLINE runStep' #-}
+
+runSweep' ::
+  (RandomGen g, PrimBase m) =>
+  Hamiltonian ->
+  Double ->
+  MutableState' (PrimState m) ->
+  g ->
+  m g
+runSweep' !hamiltonian !β !s !g₀ = do
+  let n = dimension hamiltonian
+  g₁ <- shuffleVector' n (msOrder' s) g₀
+  g₂ <- generateAcceptanceProbabilities' β n (msProbabilities' s) g₁
+  loopM_ 0 n $ \ !k -> runStep' hamiltonian s k
+  return g₂
+{-# INLINE runSweep' #-}
+{-# SCC runSweep' #-}
+
+runManySweeps' ::
+  (RandomGen g, PrimBase m) =>
+  SimulationOptions ->
+  MutableState' (PrimState m) ->
+  g ->
+  m g
+runManySweeps' (SimulationOptions hamiltonian schedule numberSweeps) s g₀ = go 0 g₀
+  where
+    go !i !g
+      | i < numberSweeps = do
+        !g' <- runSweep' hamiltonian (schedule i) s g
+        P.readOffPtr (msAccumulator s) 0 >>= P.writeOffPtr (msCurrentEnergyHistory s) (i + 1)
+        P.readOffPtr (msAccumulator s) 2 >>= P.writeOffPtr (msBestEnergyHistory s) (i + 1)
+        go (i + 1) g'
+      | otherwise = return g
+{-# SCC runManySweeps' #-}
+
+runAnnealing' ::
+  RandomGen g =>
+  SimulationOptions ->
+  Maybe Configuration ->
+  g ->
+  (Configuration, Configuration, Vector Double, Vector Double, g)
+runAnnealing' !options !maybeX !g₀ = unsafePerformIO $ do
+  let numberSweeps = optionsNumberSweeps options
+      hamiltonian = optionsHamiltonian options
+      numberSpins = dimension hamiltonian
+      (x₀, g) = case maybeX of
+        Just x -> (x, g₀)
+        Nothing -> randomConfiguration' numberSpins g₀
+      e₀ = computeEnergy hamiltonian x₀
+  xCurrent <- thaw x₀
+  xBest <- thaw x₀
+  eCurrent <- MV.unsafeNew (numberSweeps + 1)
+  eBest <- MV.unsafeNew (numberSweeps + 1)
+  deltaEnergies <- V.unsafeThaw $ computeEnergyChanges hamiltonian x₀
+  order <- MV.generate numberSpins id
+  probabilities <- MV.unsafeNew numberSpins
+  accumulator <- MV.unsafeNew 3
+  g' <-
+    MV.unsafeWith eCurrent $ \eCurrentHistoryPtr ->
+      MV.unsafeWith eBest $ \eBestHistoryPtr ->
+        MV.unsafeWith deltaEnergies $ \deltaEnergiesPtr ->
+          MV.unsafeWith order $ \orderPtr ->
+            MV.unsafeWith probabilities $ \probabilitiesPtr ->
+              MV.unsafeWith accumulator $ \accumulatorPtr -> do
+                let s =
+                      MutableState'
+                        xCurrent
+                        accumulatorPtr
+                        deltaEnergiesPtr
+                        xBest
+                        orderPtr
+                        probabilitiesPtr
+                        eCurrentHistoryPtr
+                        eBestHistoryPtr
+                P.writeOffPtr accumulatorPtr 0 e₀
+                P.writeOffPtr accumulatorPtr 1 0
+                P.writeOffPtr accumulatorPtr 2 e₀
+                P.writeOffPtr eCurrentHistoryPtr 0 e₀
+                P.writeOffPtr eBestHistoryPtr 0 e₀
+                runManySweeps' options s g
+  xCurrent' <- unsafeFreeze xCurrent
+  xBest' <- unsafeFreeze xBest
+  eCurrent' <- V.unsafeFreeze eCurrent
+  eBest' <- V.unsafeFreeze eBest
+  let eBestEstimated = V.unsafeIndex eBest' numberSweeps
+      eBestMeasured = computeEnergy hamiltonian xBest'
+  unless (eBestEstimated `almostEqual` eBestMeasured) $
+    error $
+      "This is a bug! Best spin configuration does not match the best energy: "
+        <> show eBestEstimated
+        <> " vs. "
+        <> show eBestMeasured
+  pure (xCurrent', xBest', eCurrent', eBest', g')
+
+runStep ::
+  PrimBase m =>
+  Hamiltonian ->
+  Double ->
+  Int ->
+  MutableState (PrimState m) ->
+  StepState ->
+  m StepState
+runStep !hamiltonian !p !i !s (StepState eCurrent eBest) = do
+  !δe <- {-# SCC δe #-} readVector (energyChanges s) i
+  if δe < p
+    then do
+      let x = currentConfiguration s
+      {-# SCC flip #-} unsafeFlip x i
+      {-# SCC recompute #-} recomputeEnergyChanges hamiltonian (energyChanges s) i =<< unsafeFreeze x
+      let !eCurrent' = {-# SCC eCurrent' #-} eCurrent `add` δe
+      if unAccumulator eCurrent' < eBest
+        then do
+          {-# SCC copy #-} copy (bestConfiguration s) x
+          {-# SCC pure1 #-} pure (StepState eCurrent' (unAccumulator eCurrent'))
+        else {-# SCC pure2 #-} pure (StepState eCurrent' eBest)
+    else {-# SCC pure3 #-} pure (StepState eCurrent eBest)
+-- updateCurrent =
+--   -- e <- readVector (currentEnergyHistory s) sweep
+--   δe <- readVector (energyChanges s) i
+--   writeVector (currentEnergyHistory s) sweep (e - δe)
+-- maybeUpdateBest x = do
+--   e <- readVector (currentEnergyHistory s) sweep
+--   flag <- (e <) <$> readVector (bestEnergyHistory s) sweep
+--   when flag $ do
+--     copy (bestConfiguration s) x
+--     writeVector (bestEnergyHistory s) sweep e
 -- e' <- computeEnergy hamiltonian <$> unsafeFreeze (bestConfiguration s)
 -- unless (abs (e - e') < 1.0e-10) $
 --   error $ show e <> " vs. " <> show e'
@@ -390,71 +620,98 @@ runStep !hamiltonian !p !sweep !i !s = do
 
 runSweep ::
   (RandomGen g, PrimBase m) =>
-  MVector (PrimState m) Int ->
-  MVector (PrimState m) Double ->
   Hamiltonian ->
   Double ->
-  Int ->
-  g ->
   MutableState (PrimState m) ->
-  m g
-runSweep !order !probabilities !hamiltonian !β !sweep !gen !s = do
-  gen' <- generateAcceptanceProbabilities β probabilities =<< shuffleVector order gen
-  loopM_ 0 (MV.length order) $ \k -> do
-    i <- readVector order k
-    p <- readVector probabilities k
-    runStep hamiltonian p sweep i s
-  return gen'
+  g ->
+  Accumulator ->
+  Double ->
+  m (g, Accumulator, Double)
+runSweep !hamiltonian !β !s !g₀ !eCurrent₀ !eBest₀ = do
+  !g <- generateAcceptanceProbabilities β (msProbabilities s) =<< shuffleVector (msOrder s) g₀
+  let numberSpins = MV.length (msOrder s)
+      go !k !acc
+        | k < numberSpins = do
+          i <- readVector (msOrder s) k
+          p <- readVector (msProbabilities s) k
+          runStep hamiltonian p i s acc >>= go (k + 1)
+        | otherwise = pure acc
+  (StepState !eCurrent !eBest) <- go 0 (StepState eCurrent₀ eBest₀)
+  -- loopM_ 0 (MV.length order) $ \k -> do
+  --   i <- readVector order k
+  --   p <- readVector probabilities k
+  --   runStep hamiltonian p sweep i s
+  return (g, eCurrent, eBest)
 {-# INLINE runSweep #-}
 {-# SCC runSweep #-}
 
 runManySweeps ::
   (RandomGen g, PrimBase m) =>
-  MVector (PrimState m) Int ->
-  MVector (PrimState m) Double ->
   Int ->
   Hamiltonian ->
   (Int -> Double) ->
   MutableState (PrimState m) ->
   g ->
   m g
-runManySweeps order probabilities n hamiltonian schedule s g₀ = go 0 g₀
+runManySweeps n hamiltonian schedule s g₀ = do
+  eCurrent₀ <- readVector (currentEnergyHistory s) 0
+  eBest₀ <- readVector (bestEnergyHistory s) 0
+  go 0 g₀ (Accumulator eCurrent₀ 0) eBest₀
   where
-    go i g
+    go !i !g !eCurrent !eBest
       | i < n = do
-        writeVector (currentEnergyHistory s) (i + 1) =<< readVector (currentEnergyHistory s) i
-        writeVector (bestEnergyHistory s) (i + 1) =<< readVector (bestEnergyHistory s) i
-        go (i + 1) =<< runSweep order probabilities hamiltonian (schedule i) (i + 1) g s
+        (!g', !eCurrent', !eBest') <-
+          runSweep hamiltonian (schedule i) s g eCurrent eBest
+        writeVector (currentEnergyHistory s) (i + 1) (unAccumulator eCurrent')
+        writeVector (bestEnergyHistory s) (i + 1) eBest'
+        go (i + 1) g' eCurrent' eBest'
+      -- writeVector (currentEnergyHistory s) (i + 1) =<< readVector (currentEnergyHistory s) i
+      -- writeVector (bestEnergyHistory s) (i + 1) =<< readVector (bestEnergyHistory s) i
+      -- go (i + 1) =<< runSweep order probabilities hamiltonian (schedule i) (i + 1) g s
       | otherwise = return g
 {-# SCC runManySweeps #-}
 
 runAnnealing ::
   RandomGen g =>
   SimulationOptions ->
-  Configuration ->
+  Maybe Configuration ->
   g ->
   (Configuration, Configuration, Vector Double, Vector Double, g)
-runAnnealing options x₀ g₀ = runST $
-  withMutableState (optionsNumberSweeps options) (optionsHamiltonian options) x₀ $ \s -> do
-    order <- MV.generate (dimension (optionsHamiltonian options)) id
-    probabilities <- MV.unsafeNew (dimension (optionsHamiltonian options))
+runAnnealing options x₀ g₀ = unsafePerformIO $ do
+  let numberSpins = dimension (optionsHamiltonian options)
+      (!x, !g) = case x₀ of
+        Just y -> (y, g₀)
+        Nothing -> randomConfiguration' numberSpins g₀
+  withMutableState (optionsNumberSweeps options) (optionsHamiltonian options) x $ \s -> do
     runManySweeps
-      order
-      probabilities
       (optionsNumberSweeps options)
       (optionsHamiltonian options)
       (optionsSchedule options)
       s
-      g₀
+      g
+
+annealParallel ::
+  SimulationOptions ->
+  Maybe Configuration ->
+  Int ->
+  CongruentialState ->
+  IO [(Configuration, Double)]
+annealParallel options x₀ numberRepetitions (CongruentialState seed) =
+  let !numberSweeps = optionsNumberSweeps options
+      runOne !g₀ =
+        evaluate $
+          force $ case runAnnealing' options x₀ g₀ of
+            (_, xBest, _, eBest, _) -> (xBest, indexVector eBest numberSweeps)
+      gs = CongruentialState <$> [seed .. seed + fromIntegral numberRepetitions - 1]
+   in pooledMapConcurrently runOne gs
 
 simpleAnneal ::
   SimulationOptions ->
   Word32 ->
   (Configuration, Configuration, Vector Double, Vector Double)
 simpleAnneal options seed =
-  let numberSpins = dimension (optionsHamiltonian options)
-      (x₀, g) = randomConfiguration' numberSpins $ CongruentialState seed
-      (xCurrent, xBest, eCurrent, eBest, _) = runAnnealing options x₀ g
+  let g₀ = CongruentialState seed
+      (xCurrent, xBest, eCurrent, eBest, _) = runAnnealing options Nothing g₀
    in (xCurrent, xBest, eCurrent, eBest)
 
 simpleGroundState :: SimulationOptions -> Word32 -> (Configuration, Double)
@@ -865,6 +1122,7 @@ loadFromCSV filename = do
 ----------------------------------------------------------------------------------------------------
 
 newtype CongruentialState = CongruentialState Word32
+  deriving newtype (NFData)
 
 instance RandomGen CongruentialState where
   split = error "CongruentialState is not splittable"
@@ -955,6 +1213,48 @@ configurationFromPtr n p = do
   copyBytes (mutablePrimArrayContents v) p $ blocks * sizeOf (0 :: Word64)
   unsafeFreeze $ MutableConfiguration v
 
+sa_anneal ::
+  -- | Hamiltonian
+  StablePtr Hamiltonian ->
+  -- | Initial configuration. If @nullPtr@, a random initial configuration will
+  -- be chosen
+  Ptr Word64 ->
+  -- | Seed for the random number generator
+  Word32 ->
+  -- | Number repetitions
+  Word32 ->
+  -- | Number sweeps
+  Word32 ->
+  -- | Initial β
+  Ptr Double ->
+  -- | Final β
+  Ptr Double ->
+  -- | Best configuration
+  Ptr Word64 ->
+  -- | Best energy history
+  IO Double
+sa_anneal hamiltonianPtr xPtr₀ seed repetitions sweeps βPtr₀ βPtr₁ xPtr = do
+  unless (repetitions >= 1) $
+    error $ "invalid number of repetitions: " <> show repetitions
+  hamiltonian <- deRefStablePtr hamiltonianPtr
+  let n = dimension hamiltonian
+      g₀ = CongruentialState seed
+      sweeps' = fromIntegral sweeps
+      (βEstimated₀, βEstimated₁) = estimateBetas hamiltonian
+  β₀ <- if βPtr₀ == nullPtr then return βEstimated₀ else peek βPtr₀
+  β₁ <- if βPtr₁ == nullPtr then return βEstimated₁ else peek βPtr₁
+  x₀ <-
+    if xPtr₀ == nullPtr
+      then pure Nothing
+      else Just <$> configurationFromPtr n xPtr₀
+  let options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps') sweeps'
+  results <- annealParallel options x₀ (fromIntegral repetitions) g₀
+  let ((Configuration xBest), eBest) = Data.List.minimumBy (comparing snd) results
+  copyPrimArrayToPtr xPtr xBest 0 (sizeofPrimArray xBest)
+  pure eBest
+
+foreign export ccall sa_anneal :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Word32 -> Ptr Double -> Ptr Double -> Ptr Word64 -> IO Double
+
 sa_find_ground_state ::
   -- | Hamiltonian
   StablePtr Hamiltonian ->
@@ -984,14 +1284,12 @@ sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps βPtr₀ βPtr₁ xPtr cu
       (βEstimated₀, βEstimated₁) = estimateBetas hamiltonian
   β₀ <- if βPtr₀ == nullPtr then return βEstimated₀ else peek βPtr₀
   β₁ <- if βPtr₁ == nullPtr then return βEstimated₁ else peek βPtr₁
-  (x₀, g₁) <-
+  x₀ <-
     if xPtr₀ == nullPtr
-      then return $ randomConfiguration' n g₀
-      else do
-        x <- configurationFromPtr n xPtr₀
-        return (x, g₀)
+      then pure Nothing
+      else Just <$> configurationFromPtr n xPtr₀
   let options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps) sweeps
-      (_, (Configuration xBest), eCurrent, eBest, _) = runAnnealing options x₀ g₁
+      (_, (Configuration xBest), eCurrent, eBest, _) = runAnnealing options x₀ g₀
       eBestEstimated = indexVector eBest sweeps
       eBestMeasured = computeEnergy hamiltonian (Configuration xBest)
   unless (abs (eBestEstimated - eBestMeasured) < 1.0e-9) $
