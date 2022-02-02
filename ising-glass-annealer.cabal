@@ -1,6 +1,6 @@
 cabal-version:         2.4
 name:                  ising-glass-annealer
-version:               0.3.0.0
+version:               0.3.0.1
 synopsis:              See README for more info
 description:           See README for more info
 license:               BSD-3-Clause
