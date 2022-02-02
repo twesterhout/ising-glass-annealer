@@ -10,6 +10,8 @@ void *sa_create_hamiltonian(uint32_t, uint32_t const *, uint32_t const *,
                             double const *, uint32_t, double const *);
 void sa_destroy_hamiltonian(void *);
 
+double sa_compute_energy(void *hamiltonian, uint64_t const *x);
+
 void sa_find_ground_state(void *hamiltonian, uint64_t const *init,
                           uint32_t seed, uint32_t number_sweeps,
                           double const *beta0, double const *beta1,

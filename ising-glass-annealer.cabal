@@ -1,6 +1,6 @@
 cabal-version:         2.4
 name:                  ising-glass-annealer
-version:               0.2.0.2
+version:               0.3.0.0
 synopsis:              See README for more info
 description:           See README for more info
 license:               BSD-3-Clause
@@ -57,8 +57,7 @@ library
   import:              common-options
   hs-source-dirs:      src
   exposed-modules:     Physics.Ising
-  c-sources:           cbits/init.c
-                     , cbits/helpers.c
+  c-sources:           cbits/helpers.c
   cc-options:          -O3 -DNDEBUG -ffast-math
   build-depends:       vector
                      , vector-algorithms

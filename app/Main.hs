@@ -24,7 +24,7 @@ main = do
       (β₀, β₁) = estimateBetas hamiltonian
       options = SimulationOptions hamiltonian (exponentialSchedule β₀ β₁ sweeps) sweeps
   print (β₀, β₁)
-  results <- annealParallel options Nothing 2 (CongruentialState 123)
+  results <- annealParallel options Nothing 4 (CongruentialState 123)
   print $ fmap snd results
   let (!x, !energy) = Data.List.minimumBy (comparing snd) results
       energy' = computeEnergy hamiltonian x

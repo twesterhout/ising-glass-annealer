@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "0.2.0.2"
+__version__ = "0.3.0.0"
 __author__ = "Tom Westerhout <14264576+twesterhout@users.noreply.github.com>"
 
 import ctypes
@@ -108,9 +108,13 @@ def __preprocess_library():
         ("sa_create_hamiltonian", [c_uint32, POINTER(c_uint32), POINTER(c_uint32), POINTER(c_double),
                                    c_uint32, POINTER(c_double)], c_void_p),
         ("sa_destroy_hamiltonian", [c_void_p], None),
-        ("sa_find_ground_state", [c_void_p, POINTER(c_uint64), c_uint32,
-                                  c_uint32, POINTER(c_double), POINTER(c_double),
-                                  POINTER(c_uint64), POINTER(c_double), POINTER(c_double)], None),
+        ("sa_compute_energy", [c_void_p, POINTER(c_uint64)], c_double),
+        # ("sa_find_ground_state", [c_void_p, POINTER(c_uint64), c_uint32,
+        #                           c_uint32, POINTER(c_double), POINTER(c_double),
+        #                           POINTER(c_uint64), POINTER(c_double), POINTER(c_double)], None),
+        ("sa_anneal", [c_void_p, POINTER(c_uint64), c_uint32, c_uint32,
+                       c_uint32, POINTER(c_double), POINTER(c_double),
+                       POINTER(c_uint64), POINTER(c_double)], None),
     ]
     # fmt: on
     for (name, argtypes, restype) in info:
@@ -168,14 +172,28 @@ class Hamiltonian:
         self.exchange = exchange
         self.field = field
 
+    def energy(self, x: np.ndarray) -> float:
+        (n, _) = self.shape
+        number_words = (n + 63) // 64
+        x = np.ascontiguousarray(x, dtype=np.uint64)
+        if x.shape != (number_words,):
+            raise ValueError(
+                "'x' has wrong shape: {}; expected {}".format(x.shape, (number_words,))
+            )
+        x_ptr = x.ctypes.data_as(POINTER(c_uint64))
+        e = _lib.compute_energy(self._payload, x_ptr)
+        return float(e)
+
 
 def anneal(
     hamiltonian: Hamiltonian,
     x0=None,
     seed: Optional[int] = None,
-    number_sweeps: int = 2000,
+    number_sweeps: int = 5000,
     beta0: Optional[float] = None,
     beta1: Optional[float] = None,
+    repetitions: int = 1,
+    only_best: bool = True,
 ):
     tick = time.time()
     if not isinstance(hamiltonian, Hamiltonian):
@@ -183,96 +201,47 @@ def anneal(
     number_sweeps = int(number_sweeps)
     if number_sweeps <= 0:
         raise ValueError("'number_sweeps' must be positive, but got {}".format(number_sweeps))
+    repetitions = int(repetitions)
+    if repetitions <= 0:
+        raise ValueError("'repetitions' must be positive, but got {}".format(repetitions))
     (n, _) = hamiltonian.shape
     number_words = (n + 63) // 64
+    energy0 = None
     if x0 is not None:
         x0 = np.ascontiguousarray(x0, dtype=np.uint64)
         if x0.shape != (number_words,):
             raise ValueError(
                 "'x0' has wrong shape: {}; expected {}".format(x0.shape, (number_words,))
             )
+        energy0 = hamiltonian.energy(x0)
         x0_ptr = x0.ctypes.data_as(POINTER(c_uint64))
     else:
         x0_ptr = None
     if seed is None:
         seed = np.random.randint((1 << 32) - 1, dtype=np.uint32)
-    configuration = np.zeros(number_words, dtype=np.uint64)
-    current_energy = np.empty(number_sweeps + 1, dtype=np.float64)
-    best_energy = np.empty(number_sweeps + 1, dtype=np.float64)
-    _lib.sa_find_ground_state(
+    configurations = np.zeros((repetitions, number_words), dtype=np.uint64)
+    energies = np.empty(repetitions, dtype=np.float64)
+    _lib.sa_anneal(
         hamiltonian._payload,
         x0_ptr,
         seed,
+        repetitions,
         number_sweeps,
         byref(c_double(beta0)) if beta0 is not None else None,
         byref(c_double(beta1)) if beta1 is not None else None,
-        configuration.ctypes.data_as(POINTER(c_uint64)),
-        current_energy.ctypes.data_as(POINTER(c_double)),
-        best_energy.ctypes.data_as(POINTER(c_double)),
+        configurations.ctypes.data_as(POINTER(c_uint64)),
+        energies.ctypes.data_as(POINTER(c_double)),
     )
     tock = time.time()
-    logger.debug(
-        "Completed annealing in {:.1f} seconds. Initial energy: {}; final energy: {}.",
-        tock - tick,
-        best_energy[0],
-        best_energy[-1],
-    )
-    return configuration, current_energy, best_energy
+    if only_best:
+        index = np.argmin(energies)
+        logger.debug(
+            "Completed annealing in {:.1f} seconds. Initial energy: {}; final energy: {}.",
+            tock - tick,
+            energy0,
+            energies[index],
+        )
+        return configurations[index], energies[index]
 
-
-def _load_ground_state(filename: str):
-    import h5py
-
-    with h5py.File(filename, "r") as f:
-        ground_state = f["/hamiltonian/eigenvectors"][:]
-        ground_state = ground_state.squeeze()
-        energy = f["/hamiltonian/eigenvalues"][0]
-        basis_representatives = f["/basis/representatives"][:]
-    return ground_state, energy, basis_representatives
-
-
-def _load_basis_and_hamiltonian(filename: str):
-    import lattice_symmetries as ls
-    import yaml
-
-    with open(filename, "r") as f:
-        config = yaml.load(f, Loader=yaml.SafeLoader)
-    basis = ls.SpinBasis.load_from_yaml(config["basis"])
-    hamiltonian = ls.Operator.load_from_yaml(config["hamiltonian"], basis)
-    return basis, hamiltonian
-
-
-def classical_ising_model(spins, hamiltonian):
-    basis = hamiltonian.basis
-    coo_matrix = []
-    for i in spins:
-        (js, cs) = hamiltonian.apply(int(i))
-        proper_i = basis.index(int(i))
-        js = js[:, 0]
-        for j, c in zip(js, cs):
-            assert c.imag == 0
-            proper_j = basis.index(int(j))
-            coo_matrix.append((proper_i, proper_j, c.real))
-    return coo_matrix
-
-
-def test_anneal():
-    ground_state, E, representatives = _load_ground_state(
-        "/home/tom/src/spin-ed/data/heisenberg_kagome_16.h5"
-    )
-    basis, hamiltonian = _load_basis_and_hamiltonian(
-        "/home/tom/src/spin-ed/example/heisenberg_kagome_16.yaml"
-    )
-    basis.build(representatives)
-    print(E)
-    matrix = []
-    for (i, j, c) in classical_ising_model(representatives, hamiltonian):
-        coupling = c * abs(ground_state[i]) * abs(ground_state[j])
-        if abs(coupling) > 1e-10:
-            matrix.append((i, j, coupling))
-    matrix = scipy.sparse.coo_matrix(
-        ([t[2] for t in matrix], ([t[0] for t in matrix], [t[1] for t in matrix]))
-    )
-    field = np.zeros(matrix.shape[0], dtype=np.float64)
-    print("Running annealing...")
-    print(anneal(Hamiltonian(matrix, field)))
+    logger.debug("Completed annealing in {:.1f} seconds.", tock - tick)
+    return configurations, energies
