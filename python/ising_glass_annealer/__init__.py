@@ -181,7 +181,7 @@ class Hamiltonian:
                 "'x' has wrong shape: {}; expected {}".format(x.shape, (number_words,))
             )
         x_ptr = x.ctypes.data_as(POINTER(c_uint64))
-        e = _lib.compute_energy(self._payload, x_ptr)
+        e = _lib.sa_compute_energy(self._payload, x_ptr)
         return float(e)
 
 
@@ -233,6 +233,8 @@ def anneal(
         energies.ctypes.data_as(POINTER(c_double)),
     )
     tock = time.time()
+    for (x, e) in zip(configurations, energies):
+        assert np.isclose(hamiltonian.energy(x), e, rtol=1e-10, atol=1e-12)
     if only_best:
         index = np.argmin(energies)
         logger.debug(

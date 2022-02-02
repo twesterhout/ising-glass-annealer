@@ -1216,12 +1216,13 @@ configurationFromPtr n p = do
   unsafeFreeze $ MutableConfiguration v
 
 writeManyConfigurations :: Ptr Word64 -> [Configuration] -> IO ()
-writeManyConfigurations p xs₀ = go 0 xs₀
+writeManyConfigurations p₀ xs₀ = go p₀ xs₀
   where
-    go !offset ((Configuration v) : xs) = do
+    go !p ((Configuration v) : xs) = do
       let n = sizeofPrimArray v
-      copyPrimArrayToPtr p v offset n
-      go (offset + n) xs
+          p' = p `plusPtr` (n * sizeOf (undefined :: Word64))
+      copyPrimArrayToPtr p v 0 n
+      go p' xs
     go _ [] = pure ()
 
 sa_anneal ::
