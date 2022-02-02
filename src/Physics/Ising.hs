@@ -1183,7 +1183,6 @@ sa_create_hamiltonian ::
   IO (StablePtr Hamiltonian)
 sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr numberSpins fieldPtr =
   do
-    putStrLn "Creating Hamiltonian ..."
     let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
     fields <- fromPtr (fromIntegral numberSpins) fieldPtr
     matrix <-
