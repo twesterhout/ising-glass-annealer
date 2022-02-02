@@ -74,7 +74,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import System.Random.Stateful
 import qualified Text.Read
 import UnliftIO.Async (pooledMapConcurrently)
-import Prelude hiding (first, init, second, toList, trace, words)
+import Prelude hiding (first, init, second, toList, words)
 
 -- | Similar to 'ForeignPtr.withForeignPtr' except that it works with any 'PrimBase'.
 withForeignPtr :: PrimBase m => ForeignPtr a -> (Ptr a -> m b) -> m b
@@ -343,7 +343,7 @@ unsafeSwap v !i !j = do
 {-# INLINE unsafeSwap #-}
 
 shuffleVector' :: (PrimBase m, RandomGen g) => Int -> Ptr Int -> g -> m g
-shuffleVector' !n !v !g₀ = go g₀ n
+shuffleVector' !n !v !g₀ = go g₀ (n - 1)
   where
     swap !i !j = do
       a <- P.readOffPtr v i
@@ -362,7 +362,7 @@ shuffleVector :: (PrimBase m, RandomGen g) => MVector (PrimState m) Int -> g -> 
 shuffleVector !v !g₀ = withMVector v $ \ptr ->
   shuffleVector' n ptr g₀
   where
-    !n = MV.length v - 1 -- sizeofMutablePrimArray v - 1
+    !n = MV.length v -- sizeofMutablePrimArray v - 1
 {-# SCC shuffleVector #-}
 
 generateAcceptanceProbabilities' ::
@@ -422,7 +422,8 @@ recomputeEnergyChanges' !hamiltonian !deltaEnergiesPtr !i !(Configuration bits) 
             (fromIntegral i)
             (primArrayContents bits)
 {-# SCC recomputeEnergyChanges' #-}
-{-# INLINEABLE recomputeEnergyChanges' #-}
+
+-- {-# INLINEABLE recomputeEnergyChanges' #-}
 
 -- do
 --   let (CSR !elements !columnIndices !rowIndices) = hamiltonianExchange hamiltonian
@@ -477,9 +478,14 @@ runStep' hamiltonian s !k = do
       let x = msCurrent s
       unsafeFlip x i
       unsafeFreeze x >>= recomputeEnergyChanges' hamiltonian (msEnergyChanges s) i
-      t' <- (+ δe) <$> P.readOffPtr acc 0
+      t <- P.readOffPtr acc 0
       eBest <- P.readOffPtr acc 2
+      c <- P.readOffPtr (msAccumulator s) 1
+      let δe' = δe + c
+          t' = t + δe'
+          c' = δe' - (t' - t)
       P.writeOffPtr acc 0 t'
+      P.writeOffPtr acc 1 c'
       if t' < eBest
         then do
           P.writeOffPtr acc 2 t'
@@ -487,6 +493,8 @@ runStep' hamiltonian s !k = do
         else pure ()
     else pure ()
 {-# INLINE runStep' #-}
+
+-- {-# SCC runStep' #-}
 
 runSweep' ::
   (RandomGen g, PrimBase m) =>
@@ -589,19 +597,19 @@ runStep ::
   StepState ->
   m StepState
 runStep !hamiltonian !p !i !s (StepState eCurrent eBest) = do
-  !δe <- {-# SCC δe #-} readVector (energyChanges s) i
+  !δe <- readVector (energyChanges s) i
   if δe < p
     then do
       let x = currentConfiguration s
-      {-# SCC flip #-} unsafeFlip x i
-      {-# SCC recompute #-} recomputeEnergyChanges hamiltonian (energyChanges s) i =<< unsafeFreeze x
-      let !eCurrent' = {-# SCC eCurrent' #-} eCurrent `add` δe
+      unsafeFlip x i
+      recomputeEnergyChanges hamiltonian (energyChanges s) i =<< unsafeFreeze x
+      let !eCurrent' = eCurrent `add` δe
       if unAccumulator eCurrent' < eBest
         then do
-          {-# SCC copy #-} copy (bestConfiguration s) x
-          {-# SCC pure1 #-} pure (StepState eCurrent' (unAccumulator eCurrent'))
-        else {-# SCC pure2 #-} pure (StepState eCurrent' eBest)
-    else {-# SCC pure3 #-} pure (StepState eCurrent eBest)
+          copy (bestConfiguration s) x
+          pure (StepState eCurrent' (unAccumulator eCurrent'))
+        else pure (StepState eCurrent' eBest)
+    else pure (StepState eCurrent eBest)
 -- updateCurrent =
 --   -- e <- readVector (currentEnergyHistory s) sweep
 --   δe <- readVector (energyChanges s) i
@@ -616,7 +624,8 @@ runStep !hamiltonian !p !i !s (StepState eCurrent eBest) = do
 -- unless (abs (e - e') < 1.0e-10) $
 --   error $ show e <> " vs. " <> show e'
 {-# INLINE runStep #-}
-{-# SCC runStep #-}
+
+-- {-# SCC runStep #-}
 
 runSweep ::
   (RandomGen g, PrimBase m) =>
@@ -700,8 +709,9 @@ annealParallel options x₀ numberRepetitions (CongruentialState seed) =
   let !numberSweeps = optionsNumberSweeps options
       runOne !g₀ =
         evaluate $
-          force $ case runAnnealing' options x₀ g₀ of
-            (_, xBest, _, eBest, _) -> (xBest, indexVector eBest numberSweeps)
+          force $
+            case runAnnealing' options x₀ g₀ of
+              (_, xBest, _, eBest, _) -> (xBest, indexVector eBest numberSweeps)
       gs = CongruentialState <$> [seed .. seed + fromIntegral numberRepetitions - 1]
    in pooledMapConcurrently runOne gs
 
@@ -1122,6 +1132,7 @@ loadFromCSV filename = do
 ----------------------------------------------------------------------------------------------------
 
 newtype CongruentialState = CongruentialState Word32
+  deriving stock (Show)
   deriving newtype (NFData)
 
 instance RandomGen CongruentialState where
