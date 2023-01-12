@@ -1156,10 +1156,11 @@ foreign import ccall unsafe "wordToFloat" wordToFloat :: Word32 -> Float
 -- {-# INLINE wordToFloat #-}
 
 uniformFloat01 :: RandomGen g => g -> (Float, g)
-uniformFloat01 !g =
-  let !(w, g') = genWord32 g
-   in (wordToFloat w, g')
+uniformFloat01 g = (wordToFloat w, g')
+  where
+    (w, g') = genWord32 g 
 {-# INLINE uniformFloat01 #-}
+-- {-# SPECIALIZE uniformFloat01 :: Congru #-}
 
 -- {-# SCC uniformFloat01 #-}
 

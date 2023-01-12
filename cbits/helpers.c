@@ -1,3 +1,4 @@
+#include <HsFFI.h>
 #include <stdint.h>
 
 float wordToFloat(uint64_t const x) {

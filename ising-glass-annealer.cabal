@@ -1,35 +1,33 @@
-cabal-version:         2.4
+cabal-version:         3.4
 name:                  ising-glass-annealer
-version:               0.3.0.1
+version:               0.4.0.0
 synopsis:              See README for more info
 description:           See README for more info
 license:               BSD-3-Clause
 license-file:          LICENSE
 author:                Tom Westerhout
 maintainer:            Tom Westerhout <14264576+twesterhout@users.noreply.github.com>
-copyright:             2021 Tom Westerhout
+copyright:             2021-2023 Tom Westerhout
 category:              Math
-build-type:            Custom
+build-type:            Simple
 extra-doc-files:       README.md
                        CHANGELOG.md
-tested-with:           GHC == 8.8.4
-                       GHC == 8.10.4
+tested-with:           GHC == 8.10.7
 
-flag build-example
-  description: Build ising-ground-state executable
-  manual: True
-  default: False
+-- flag build-example
+--   description: Build ising-ground-state executable
+--   manual: True
+--   default: False
 
-custom-setup
-  setup-depends:       base, containers, Cabal, filepath
+-- custom-setup
+--   setup-depends:       base, containers, Cabal, filepath
 
 common common-options
   build-depends:       base >= 4.13.0.0
-                     , relude
+--                      , relude
 
-  mixins:              base hiding (Prelude)
-                     , relude (Relude as Prelude)
-
+--   mixins:              base hiding (Prelude)
+--                      , relude (Relude as Prelude)
   ghc-options:         -Wall
                        -Wcompat
                        -Widentities
@@ -65,22 +63,22 @@ library
                      , primitive
                      , mtl
                      , random >= 1.2.0
-                     , mwc-random
-                     , text
+                     -- , mwc-random
+                     -- , text
                      , unliftio
 
-executable ising-ground-state
-  import:              common-options
-  -- if !flag(build-example)
-  --   buildable:         False
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  build-depends:       ising-glass-annealer
-                     , vector
-                     , hdf5-hs
-  ghc-options:         -threaded
-                       -rtsopts
-                       -with-rtsopts=-N
+-- executable ising-ground-state
+--   import:              common-options
+--   -- if !flag(build-example)
+--   --   buildable:         False
+--   hs-source-dirs:      app
+--   main-is:             Main.hs
+--   build-depends:       ising-glass-annealer
+--                      , vector
+--                      , hdf5-hs
+--   ghc-options:         -threaded
+--                        -rtsopts
+--                        -with-rtsopts=-N
 
 test-suite ising-ground-state-test
   import:              common-options
