@@ -6,78 +6,101 @@
 
 module Physics.Ising
   ( -- * Annealing
+
+    {-
     Configuration (..),
     SimulationOptions (..),
     annealParallel,
     simpleGroundState,
     bruteForceSolve,
+    -}
 
     -- * Hamiltonian
+
+    {-
     Hamiltonian (..),
     mkHamiltonian,
     computeEnergy,
     computeEnergyChanges,
     computeOverlap,
+    -}
 
     -- * Annealing schedule
     linearSchedule,
     exponentialSchedule,
-    estimateBetas,
+    -- estimateBetas,
 
     -- * Sparse matrices
-    COO (..),
-    CSR (..),
-    mkCOO,
-    extractDiagonal,
-    fromCOO,
-    csrIsSymmetric,
-    csrIndex,
-    nubBySorted,
+
+    -- COO (..),
+    -- CSR (..),
+    -- mkCOO,
+    -- extractDiagonal,
+    -- fromCOO,
+    -- csrIsSymmetric,
+    -- csrIndex,
+    -- nubBySorted,
 
     -- * Functions for testing
-    loadFromCSV,
-    graphErdosRenyi,
-    randomHamiltonianM,
-    randomHamiltonian,
+
+    -- loadFromCSV,
+    -- graphErdosRenyi,
+    -- randomHamiltonianM,
+    -- randomHamiltonian,
 
     -- * Random number generation
     CongruentialState (..),
 
     -- * Foreign exported functions
+    Hamiltonian' (..),
+    CSR' (..),
+    Bits' (..),
+    MutableState (..),
+    anneal',
+    annealParallel',
+
+    innerProduct,
+    computeEnergy',
+    computeEnergyChanges',
+    flipAndUpdateEnergyChanges',
+    runStep,
   )
 where
 
-import Control.Concurrent (getNumCapabilities, runInUnboundThread, setNumCapabilities)
-import Control.Exception (assert, evaluate)
-import Control.Monad.Identity
+import Control.DeepSeq
+import Control.Monad (when)
+-- import Control.Exception (assert, evaluate)
+-- import Control.Monad.Identity
 import Control.Monad.Primitive
-import Control.Monad.ST
+-- import Control.Monad.ST
 import Data.Bits
-import qualified Data.List
-import Data.Primitive.PrimArray
+import Data.Int
+-- import qualified Data.List
+-- import Data.Primitive.PrimArray
 import qualified Data.Primitive.Ptr as P
-import Data.Primitive.Types (Prim, sizeOf)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Data.Vector.Algorithms.Intro as MV
-import Data.Vector.Storable (MVector (..), Vector)
-import qualified Data.Vector.Storable as V
+import Data.Primitive.Types (Prim)
+-- import qualified Data.Text as T
+-- import qualified Data.Text.IO as T
+-- import qualified Data.Vector.Algorithms.Intro as MV
 import qualified Data.Vector.Storable.Mutable as MV
-import Foreign.ForeignPtr (ForeignPtr, newForeignPtr_)
-import qualified Foreign.ForeignPtr
-import Foreign.Marshal.Array (pokeArray)
-import Foreign.Marshal.Utils (copyBytes)
+import Data.Word
+-- import Foreign.ForeignPtr (ForeignPtr, newForeignPtr_)
+-- import qualified Foreign.ForeignPtr
+-- import Foreign.Marshal.Array (pokeArray)
+-- import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr
-import Foreign.StablePtr
-import Foreign.Storable (Storable, peek)
-import GHC.Conc (getNumProcessors)
-import GHC.Exts
-import GHC.Float
-import System.IO.Unsafe (unsafePerformIO)
+-- import Foreign.StablePtr
+import Foreign.Storable (Storable)
+-- import GHC.Conc (getNumProcessors)
+-- import GHC.Exts
+-- import GHC.Float
+-- import GHC.Generics
+import Debug.Trace
+-- import System.IO.Unsafe (unsafePerformIO)
 import System.Random.Stateful
-import qualified Text.Read
+-- import qualified Text.Read
 import UnliftIO.Async (pooledMapConcurrently)
-import Prelude hiding (first, init, second, toList, words)
+import Prelude hiding (init)
 
 -- | Similar to 'ForeignPtr.withForeignPtr' except that it works with any 'PrimBase'.
 -- withForeignPtr :: PrimBase m => ForeignPtr a -> (Ptr a -> m b) -> m b
@@ -101,11 +124,11 @@ import Prelude hiding (first, init, second, toList, words)
 -- indexVector :: (Storable a, Prim a) => Vector a -> Int -> a
 -- indexVector v i = unsafeInlineIO $ withVector v $ \p -> return $ P.indexOffPtr p i
 -- {-# INLINE indexVector #-}
-infixl 9 !
+-- infixl 9 !
 
-(!) :: (Storable a, Prim a) => Vector a -> Int -> a
-(!) = V.unsafeIndex
-{-# INLINE (!) #-}
+-- (!) :: (Storable a, Prim a) => Vector a -> Int -> a
+-- (!) = V.unsafeIndex
+-- {-# INLINE (!) #-}
 
 -- readVector :: (PrimBase m, Prim a) => MVector (PrimState m) a -> Int -> m a
 -- readVector !v !i = withMVector v $ \p -> P.readOffPtr p i
@@ -119,21 +142,22 @@ infixl 9 !
 -- modifyVector !v !f !i = writeVector v i =<< f <$> readVector v i
 -- {-# INLINE modifyVector #-}
 
-loopM_ ::
-  Monad m =>
-  -- | begin
-  Int ->
-  -- | end
-  Int ->
-  -- | loop body
-  (Int -> m ()) ->
-  m ()
-loopM_ !begin !end f = go begin
-  where
-    go !i
-      | i < end = f i >> go (i + 1)
-      | otherwise = return ()
+-- loopM_ ::
+--   Monad m =>
+--   -- | begin
+--   Int ->
+--   -- | end
+--   Int ->
+--   -- | loop body
+--   (Int -> m ()) ->
+--   m ()
+-- loopM_ !begin !end f = go begin
+--   where
+--     go !i
+--       | i < end = f i >> go (i + 1)
+--       | otherwise = return ()
 
+{-
 -- | Spin configuration.
 --
 -- Every spin is represented by a single bit: @bit=0@ means @spin=-1@ and
@@ -189,7 +213,9 @@ unsafeFlip !(MutableConfiguration v) !i =
     block = i `div` 64
     rest = i `mod` 64
 {-# INLINE unsafeFlip #-}
+-}
 
+{-
 -- | Mutable simulation state
 --
 -- It contains current and best spin configurations, histories of current and
@@ -226,7 +252,31 @@ data SimulationOptions = SimulationOptions
   }
   deriving stock (Generic)
   deriving anyclass (NFData)
+-}
 
+data CSR' i a
+  = CSR'
+      {-# UNPACK #-} !Int
+      {-# UNPACK #-} !(Ptr a)
+      {-# UNPACK #-} !(Ptr i)
+      {-# UNPACK #-} !(Ptr i)
+
+newtype Bits' = Bits' (Ptr Word64)
+
+data Hamiltonian' i a
+  = Hamiltonian'
+      {-# UNPACK #-} !(CSR' i a)
+      {-# UNPACK #-} !(Ptr a)
+
+data MutableState i a
+  = MutableState
+      {-# UNPACK #-} !(Hamiltonian' i a)
+      {-# UNPACK #-} !Bits'
+      {-# UNPACK #-} !(Ptr a)
+      {-# UNPACK #-} !Bits'
+      {-# UNPACK #-} !(Ptr a)
+
+{-
 -- | Sparse matrix in Compressed Sparse Row (CSR) format.
 data CSR a = CSR
   { csrData :: !(Vector a),
@@ -257,6 +307,7 @@ data Hamiltonian = Hamiltonian
 dimension :: Hamiltonian -> Int
 dimension = V.length . hamiltonianField
 {-# INLINE dimension #-}
+-}
 
 linearSchedule ::
   -- | Initial β
@@ -275,24 +326,27 @@ linearSchedule β₀ β₁ numberSweeps
     c = (β₁ - β₀) / fromIntegral (numberSweeps - 1)
 
 exponentialSchedule ::
+  RealFloat a =>
   -- | Initial β
-  Double ->
+  a ->
   -- | Final β
-  Double ->
+  a ->
   -- | Number of sweeps
   Int ->
   -- | Schedule for linearly decreasing β
-  (Int -> Double)
+  (Int -> a)
 exponentialSchedule !β₀ !β₁ !numberSweeps
   | numberSweeps < 0 = error $ "invalid number of sweeps: " <> show numberSweeps
   | numberSweeps == 0 = \_ -> 0
   | otherwise = \i -> β₀ * (β₁ / β₀) ** (fromIntegral i / fromIntegral (numberSweeps - 1))
 
+{-
 -- | Estimate initial and final β by looking at Hamiltonian matrix elements.
 estimateBetas :: Hamiltonian -> (Double, Double)
 estimateBetas hamiltonian = (log 2 / maxDeltaEnergy, log 100 / minDeltaEnergy)
   where
     (minDeltaEnergy, maxDeltaEnergy) = energyChangeBounds hamiltonian
+-}
 
 almostEqual :: Double -> Double -> Bool
 almostEqual a b = abs (a - b) < atol + rtol + max (abs a) (abs b)
@@ -343,7 +397,7 @@ almostEqual a b = abs (a - b) < atol + rtol + max (abs a) (abs b)
 --   writeVector v j a
 -- {-# INLINE unsafeSwap #-}
 
-shuffleVector' :: (PrimBase m, RandomGen g) => Int -> Ptr Int -> g -> m g
+shuffleVector' :: (Prim i, PrimMonad m, RandomGen g) => Int -> Ptr i -> g -> m g
 shuffleVector' !n !v !g₀ = go g₀ (n - 1)
   where
     swap !i !j = do
@@ -353,9 +407,9 @@ shuffleVector' !n !v !g₀ = go g₀ (n - 1)
       P.writeOffPtr v j a
     go !g !j
       | j > 0 = do
-        let (i, g') = uniformWord32R' (fromIntegral j) g
-        swap (fromIntegral i) j
-        go g' (j - 1)
+          let (i, g') = uniformWord32R' (fromIntegral j) g
+          swap (fromIntegral i) j
+          go g' (j - 1)
       | otherwise = return g
 {-# SCC shuffleVector' #-}
 
@@ -367,15 +421,15 @@ shuffleVector' !n !v !g₀ = go g₀ (n - 1)
 -- {-# SCC shuffleVector #-}
 
 generateAcceptanceProbabilities' ::
-  (RandomGen g, PrimBase m) => Double -> Int -> Ptr Double -> g -> m g
+  (Prim a, RealFloat a, UniformRange a, RandomGen g, PrimMonad m) => a -> Int -> Ptr a -> g -> m g
 generateAcceptanceProbabilities' β n probabilities g₀ = go g₀ 0
   where
     !pre = -1 / β
     go !g !i
       | i < n = do
-        let (!u, !g') = uniformFloat01 g
-        P.writeOffPtr probabilities i $ pre * float2Double (log u)
-        go g' (i + 1)
+          let (!u, !g') = uniformR (0, 1) g
+          P.writeOffPtr probabilities i $ pre * (log u)
+          go g' (i + 1)
       | otherwise = return g
 {-# SCC generateAcceptanceProbabilities' #-}
 
@@ -388,8 +442,8 @@ generateAcceptanceProbabilities' β n probabilities g₀ = go g₀ 0
 --     !n = MV.length probabilities
 -- {-# SCC generateAcceptanceProbabilities #-}
 
-foreign import ccall unsafe "recomputeEnergyChanges"
-  c_recomputeEnergyChanges :: Ptr Double -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Word64 -> IO ()
+-- foreign import ccall unsafe "recomputeEnergyChanges"
+--   c_recomputeEnergyChanges :: Ptr Double -> Ptr Word32 -> Ptr Word32 -> Ptr Double -> Word32 -> Ptr Word64 -> IO ()
 
 -- recomputeEnergyChanges ::
 --   PrimBase m =>
@@ -402,6 +456,7 @@ foreign import ccall unsafe "recomputeEnergyChanges"
 --   withMVector deltaEnergies $ \deltaEnergiesPtr ->
 --     recomputeEnergyChanges' hamiltonian deltaEnergiesPtr i x
 
+{-
 recomputeEnergyChanges' ::
   Hamiltonian ->
   Ptr Double ->
@@ -422,6 +477,7 @@ recomputeEnergyChanges' !hamiltonian !deltaEnergiesPtr !i !(Configuration bits) 
           (primArrayContents bits)
 {-# INLINE recomputeEnergyChanges' #-}
 {-# SCC recomputeEnergyChanges' #-}
+-}
 
 -- {-# INLINEABLE recomputeEnergyChanges' #-}
 
@@ -462,6 +518,7 @@ recomputeEnergyChanges' !hamiltonian !deltaEnergiesPtr !i !(Configuration bits) 
 
 -- data StepState = StepState {-# UNPACK #-} !Accumulator {-# UNPACK #-} !Double
 
+{-
 runStep' ::
   Hamiltonian ->
   MutableState' (PrimState IO) ->
@@ -492,7 +549,7 @@ runStep' hamiltonian s !k = do
           copy (msBest s) (msCurrent s)
         else pure ()
     else pure ()
-{-# INLINE runStep' #-}
+{-# NOINLINE runStep' #-}
 
 runSweep' ::
   RandomGen g =>
@@ -520,10 +577,10 @@ runManySweeps' (SimulationOptions hamiltonian schedule numberSweeps) s g₀ = go
   where
     go !i !g
       | i < numberSweeps = do
-        !g' <- runSweep' hamiltonian (schedule i) s g
-        P.readOffPtr (msAccumulator s) 0 >>= P.writeOffPtr (msCurrentEnergyHistory s) (i + 1)
-        P.readOffPtr (msAccumulator s) 2 >>= P.writeOffPtr (msBestEnergyHistory s) (i + 1)
-        go (i + 1) g'
+          !g' <- runSweep' hamiltonian (schedule i) s g
+          P.readOffPtr (msAccumulator s) 0 >>= P.writeOffPtr (msCurrentEnergyHistory s) (i + 1)
+          P.readOffPtr (msAccumulator s) 2 >>= P.writeOffPtr (msBestEnergyHistory s) (i + 1)
+          go (i + 1) g'
       | otherwise = return g
 {-# SCC runManySweeps' #-}
 
@@ -585,6 +642,7 @@ runAnnealing' !options !maybeX !g₀ = unsafePerformIO $ do
         <> " vs. "
         <> show eBestMeasured
   pure (xCurrent', xBest', eCurrent', eBest', g')
+-}
 
 -- runStep ::
 --   PrimBase m =>
@@ -682,6 +740,7 @@ runAnnealing' !options !maybeX !g₀ = unsafePerformIO $ do
 --       s
 --       g
 
+{-
 annealParallel ::
   SimulationOptions ->
   Maybe Configuration ->
@@ -715,7 +774,7 @@ simpleGroundState options seed =
 computeOverlap :: Vector Double -> Configuration -> Double
 computeOverlap exact predicted@(Configuration array)
   | V.length exact <= 64 * sizeofPrimArray array =
-    let (s, n) = V.ifoldl' combine (0, 0) exact in s / n
+      let (s, n) = V.ifoldl' combine (0, 0) exact in s / n
   | otherwise = error $ "lengths of 'exact' and 'predicted' do not match"
   where
     combine (s, n) i x' =
@@ -729,9 +788,9 @@ randomConfiguration' n g₀ = runST $ do
   buffer <- newPrimArray $ (n + 63) `div` 64
   let goMain !i !g
         | i < blocks = do
-          let (w, g') = uniform g
-          writePrimArray buffer i w
-          goMain (i + 1) g'
+            let (w, g') = uniform g
+            writePrimArray buffer i w
+            goMain (i + 1) g'
         | otherwise = goFinal i g
       goFinal !i !g =
         if (rest > 0)
@@ -752,27 +811,221 @@ bruteForceSolve hamiltonian
   | n == 0 = error $ "invalid number of spins: " <> show n
   | n >= 64 = error "it is unfeasible to iterate over more than 2⁶³ spin configurations"
   | otherwise = runST $ do
-    let x₀ = Configuration (fromList [0])
-        e₀ = computeEnergy hamiltonian x₀
-    buffer <- unsafeThaw x₀
-    let go !xBest !eBest x
-          | x < end = do
-            let (MutableConfiguration v) = buffer
-            writePrimArray v 0 x
-            e <- computeEnergy hamiltonian <$> unsafeFreeze buffer
-            if e < eBest
-              then go x e (x + 1)
-              else go xBest eBest (x + 1)
-          | otherwise = return (Configuration $ fromList [xBest], eBest)
-    go 0 e₀ 1
+      let x₀ = Configuration (fromList [0])
+          e₀ = computeEnergy hamiltonian x₀
+      buffer <- unsafeThaw x₀
+      let go !xBest !eBest x
+            | x < end = do
+                let (MutableConfiguration v) = buffer
+                writePrimArray v 0 x
+                e <- computeEnergy hamiltonian <$> unsafeFreeze buffer
+                if e < eBest
+                  then go x e (x + 1)
+                  else go xBest eBest (x + 1)
+            | otherwise = return (Configuration $ fromList [xBest], eBest)
+      go 0 e₀ 1
   where
     !n = dimension hamiltonian
     !end = 2 ^ n
+-}
 
 ----------------------------------------------------------------------------------------------------
 -- Hamiltonian
 ----------------------------------------------------------------------------------------------------
 
+divMod64 :: Int -> (# Int, Int #)
+divMod64 x = (# x `unsafeShiftR` 6, x .&. 63 #)
+{-# INLINE divMod64 #-}
+
+indexBits :: Num a => Bits' -> Int -> a
+indexBits (Bits' p) i = 2 * fromIntegral b - 1
+  where
+    (# block, rest #) = divMod64 i
+    !w = P.indexOffPtr p block
+    !b = (w `unsafeShiftR` rest) .&. 1
+{-# INLINE indexBits #-}
+
+readBits :: (Num a, PrimMonad m) => Bits' -> Int -> m a
+readBits (Bits' p) i = do
+  w <- P.readOffPtr p block
+  let b = (w `unsafeShiftR` rest) .&. 1
+  pure (2 * fromIntegral b - 1)
+  where
+    (# block, rest #) = divMod64 i
+{-# INLINE readBits #-}
+
+fold' :: a -> (a -> Bool) -> (a -> a) -> (b -> a -> b) -> b -> b
+fold' start cond inc combine init = go start init
+  where
+    go !x !acc
+      | cond x = go (inc x) (combine acc x)
+      | otherwise = acc
+{-# INLINE fold' #-}
+
+innerProduct :: (Prim a, Num a) => Int -> Ptr a -> Bits' -> a
+innerProduct n xs ys = fold' 0 (< n) (+ 1) combine 0
+  where
+    combine !acc !i = acc + P.indexOffPtr xs i * indexBits ys i
+{-# INLINE innerProduct #-}
+
+matrixVectorElement :: forall i a. (Prim i, Integral i, Prim a, Num a) => CSR' i a -> Bits' -> Int -> a
+matrixVectorElement (CSR' _ elts colIdxs rowIdxs) bits i = fold' b (< e) (+ 1) combine 0
+  where
+    b = fromIntegral (P.indexOffPtr rowIdxs i)
+    e = fromIntegral (P.indexOffPtr rowIdxs (i + 1))
+    combine :: a -> Int -> a
+    combine !acc !k =
+      let !j = fromIntegral (P.indexOffPtr colIdxs k)
+       in acc + P.indexOffPtr elts k * indexBits bits j
+-- {-# NOINLINE matrixVectorElement #-}
+{-# SPECIALIZE matrixVectorElement :: CSR' Int32 Float -> Bits' -> Int -> Float #-}
+{-# SPECIALIZE matrixVectorElement :: CSR' Int32 Double -> Bits' -> Int -> Double #-}
+
+computeEnergy' :: (Prim i, Integral i, Prim a, Num a) => Hamiltonian' i a -> Bits' -> a
+computeEnergy' (Hamiltonian' matrix@(CSR' n _ _ _) field) bits = matrixPart + fieldPart
+  where
+    fieldPart = innerProduct n field bits
+    matrixPart = fold' 0 (< n) (+ 1) combine 0
+    combine !acc !i = acc + indexBits bits i * matrixVectorElement matrix bits i
+{-# SPECIALIZE computeEnergy' :: Hamiltonian' Int32 Float -> Bits' -> Float #-}
+{-# SPECIALIZE computeEnergy' :: Hamiltonian' Int32 Double -> Bits' -> Double #-}
+
+computeEnergyChanges' :: (Prim i, Integral i, Prim a, Num a, PrimMonad m) => Hamiltonian' i a -> Bits' -> Ptr a -> m ()
+computeEnergyChanges' (Hamiltonian' matrix@(CSR' n _ _ _) field) bits energyChanges =
+  loop1 0 (< n) (+ 1) $ \i ->
+    P.writeOffPtr energyChanges i (changeUponFlip i)
+  where
+    changeUponFlip i =
+      -indexBits bits i * (4 * matrixVectorElement matrix bits i + 2 * P.indexOffPtr field i)
+
+flipAndUpdateEnergyChanges' :: (Prim i, Integral i, Prim a, Num a, PrimMonad m) => Hamiltonian' i a -> Bits' -> Ptr a -> Int -> m ()
+flipAndUpdateEnergyChanges' h@(Hamiltonian' (CSR' _ elts colIdxs rowIdxs) field) (Bits' bits) energyChanges i = do
+  let b = fromIntegral $ P.indexOffPtr rowIdxs i
+      e = fromIntegral $ P.indexOffPtr rowIdxs (i + 1)
+      (# iBlock, iRest #) = divMod64 i
+  s <- P.readOffPtr bits iBlock
+  let s' = s `xor` (1 `unsafeShiftL` iRest)
+      !pre = -8 * (2 * fromIntegral ((s' `unsafeShiftR` iRest) .&. 1) - 1)
+  P.writeOffPtr bits iBlock s'
+  P.writeOffPtr energyChanges i =<< negate <$> P.readOffPtr energyChanges i
+  -- computeEnergyChanges' h (Bits' bits) energyChanges
+  loop1 b (< e) (+ 1) $ \k -> do
+    let j = fromIntegral (P.indexOffPtr colIdxs k)
+        coupling = P.indexOffPtr elts k
+    sigma <- readBits (Bits' bits) j
+    de <- P.readOffPtr energyChanges j
+    P.writeOffPtr energyChanges j (de + pre * coupling * sigma)
+{-# SPECIALIZE flipAndUpdateEnergyChanges' :: Hamiltonian' Int32 Float -> Bits' -> Ptr Float -> Int -> IO () #-}
+{-# SPECIALIZE flipAndUpdateEnergyChanges' :: Hamiltonian' Int32 Double -> Bits' -> Ptr Double -> Int -> IO () #-}
+
+compensatedPlus :: Num a => a -> a -> a -> (# a, a #)
+compensatedPlus t c de = (# t', c' #)
+  where
+    de' = de + c
+    t' = t + de'
+    c' = de' - (t' - t)
+{-# INLINE compensatedPlus #-}
+
+copyBits :: PrimMonad m => Int -> Bits' -> Bits' -> m ()
+copyBits count (Bits' target) (Bits' source) =
+  P.copyPtr target source ((count + 63) `div` 64)
+{-# INLINE copyBits #-}
+
+runStep ::
+  (Prim i, Integral i, Prim a, Real a, Show a, PrimMonad m) =>
+  MutableState i a ->
+  Int ->
+  Float ->
+  m ()
+runStep (MutableState h@(Hamiltonian' matrix@(CSR' n _ _ _) _) bits energyChanges best acc) i p = do
+  de <- P.readOffPtr energyChanges i
+  -- trace (show (computeEnergy' h bits)) $ pure ()
+  when (realToFrac de < p) $ do
+    flipAndUpdateEnergyChanges' h bits energyChanges i
+    t <- P.readOffPtr acc 0
+    c <- P.readOffPtr acc 1
+    let (# t', c' #) = compensatedPlus t c de
+        -- e' = computeEnergy' h bits
+    -- when (not (almostEqual (realToFrac e') (realToFrac t'))) $ do
+    --   error $ show e' <> " != " <> show t'
+    P.writeOffPtr acc 0 t'
+    P.writeOffPtr acc 1 c'
+    eBest <- P.readOffPtr acc 2
+    when (t' < eBest) $ do
+      P.writeOffPtr acc 2 t'
+      copyBits n best bits
+{-# SPECIALIZE runStep :: MutableState Int32 Float -> Int -> Float -> IO () #-}
+{-# SPECIALIZE runStep :: MutableState Int32 Double -> Int -> Float -> IO () #-}
+
+runSweeps ::
+  (Prim i, Integral i, Prim a, Real a, Show a, RandomGen g, PrimMonad m) =>
+  (Int -> Float) ->
+  Int ->
+  MutableState i a ->
+  Ptr Int32 ->
+  Ptr Float ->
+  g ->
+  m g
+runSweeps schedule numberSweeps s order probs =
+  fold1 0 (< numberSweeps) (+ 1) runSweep
+  where
+    (MutableState (Hamiltonian' (CSR' n _ _ _) _) _ _ _ _) = s
+    runSweep !g !stepIdx = do
+      g1 <- shuffleVector' n order g
+      g2 <- generateAcceptanceProbabilities' (schedule stepIdx) n probs g1
+      loop1 0 (< n) (+ 1) $ \k -> do
+        i <- P.readOffPtr order k
+        p <- P.readOffPtr probs k
+        runStep s (fromIntegral i) p
+      pure g2
+{-# SPECIALIZE runSweeps :: (Int -> Float) -> Int -> MutableState Int32 Float -> Ptr Int32 -> Ptr Float -> CongruentialState -> IO CongruentialState #-}
+{-# SPECIALIZE runSweeps :: (Int -> Float) -> Int -> MutableState Int32 Double -> Ptr Int32 -> Ptr Float -> CongruentialState -> IO CongruentialState #-}
+
+anneal' ::
+  (Prim i, Integral i, Prim a, Storable a, Real a, Show a, RandomGen g) =>
+  (Int -> Float) ->
+  Int ->
+  Hamiltonian' i a ->
+  Bits' ->
+  g ->
+  IO (a, g)
+anneal' schedule numberSweeps h@(Hamiltonian' (CSR' n _ _ _) _) bits g = do
+  energyChanges <- MV.replicate n 0
+  best <- MV.replicate ((n + 64) `div` 64) 0
+  acc <- MV.replicate 3 0
+  order <- MV.generate n fromIntegral
+  probs <- MV.replicate n 0
+  MV.unsafeWith energyChanges $ \energyChangesPtr ->
+    MV.unsafeWith best $ \bestPtr ->
+      MV.unsafeWith acc $ \accPtr ->
+        MV.unsafeWith order $ \orderPtr ->
+          MV.unsafeWith probs $ \probsPtr -> do
+            computeEnergyChanges' h bits energyChangesPtr
+            copyBits n (Bits' bestPtr) bits
+            let e = computeEnergy' h bits
+            P.writeOffPtr accPtr 0 e
+            P.writeOffPtr accPtr 1 0
+            P.writeOffPtr accPtr 2 e
+            let s = MutableState h bits energyChangesPtr (Bits' bestPtr) accPtr
+            g' <- runSweeps schedule numberSweeps s orderPtr probsPtr g
+            copyBits n bits (Bits' bestPtr)
+            e' <- P.readOffPtr accPtr 2
+            pure (e', g')
+
+annealParallel' ::
+  (Prim i, Integral i, Prim a, Storable a, Real a, NFData a, Show a, RandomGen g, NFData g) =>
+  (Int -> Float) ->
+  Int ->
+  Hamiltonian' i a ->
+  [(Bits', g)] ->
+  IO [(a, g)]
+annealParallel' schedule numberSweeps hamiltonian = pooledMapConcurrently go
+  where
+    go (bits, g) = do
+      (e, g') <- anneal' schedule numberSweeps hamiltonian bits g
+      e `deepseq` g' `deepseq` pure (e, g')
+
+{-
 -- | Computes one element of a matrix-vector product ∑ⱼMᵢⱼvⱼ
 matrixVectorProductElement :: (Storable a, Num a) => CSR a -> Configuration -> Int -> a
 matrixVectorProductElement !(CSR elements columnIndices rowIndices) !v !i =
@@ -782,10 +1035,10 @@ matrixVectorProductElement !(CSR elements columnIndices rowIndices) !v !i =
     end = fromIntegral $ V.unsafeIndex rowIndices (i + 1)
     go !acc !k !n
       | k < n =
-        let !j = fromIntegral $ V.unsafeIndex columnIndices k
-            !coupling = V.unsafeIndex elements k
-            !σⱼ = fromIntegral $ unsafeIndex v j
-         in go (acc + coupling * σⱼ) (k + 1) n
+          let !j = fromIntegral $ V.unsafeIndex columnIndices k
+              !coupling = V.unsafeIndex elements k
+              !σⱼ = fromIntegral $ unsafeIndex v j
+           in go (acc + coupling * σⱼ) (k + 1) n
       | otherwise = acc
 
 dotProduct :: (Storable a, Prim a, Num a) => Vector a -> Configuration -> a
@@ -795,8 +1048,8 @@ dotProduct !field !v = go 0 0
     go acc i
       | i >= n = acc
       | otherwise =
-        let t = fromIntegral (unsafeIndex v i) * V.unsafeIndex field i
-         in go (acc + t) (i + 1)
+          let t = fromIntegral (unsafeIndex v i) * V.unsafeIndex field i
+           in go (acc + t) (i + 1)
 
 -- | Compute energy of a classical spin configuration
 computeEnergy :: Hamiltonian -> Configuration -> Double
@@ -808,9 +1061,9 @@ computeEnergy !hamiltonian !configuration =
     !matrix = hamiltonianExchange hamiltonian
     goColumn !acc !i !n
       | i < n =
-        let !σᵢ = fromIntegral $ unsafeIndex configuration i
-            !acc' = acc + σᵢ * matrixVectorProductElement matrix configuration i
-         in goColumn acc' (i + 1) n
+          let !σᵢ = fromIntegral $ unsafeIndex configuration i
+              !acc' = acc + σᵢ * matrixVectorProductElement matrix configuration i
+           in goColumn acc' (i + 1) n
       | otherwise = acc
 
 -- | Compute 'energyChangeUponFlip' for every spin.
@@ -857,11 +1110,13 @@ energyChangeBounds hamiltonian = (max lower (2.220446049250313e-16 * upper), upp
     upper =
       runIdentity $
         fold1 0 (< n) (+ 1) (\z i -> return $ max z (maxEnergyChange hamiltonian i)) 0
+-}
 
 ----------------------------------------------------------------------------------------------------
 -- Sparse matrices
 ----------------------------------------------------------------------------------------------------
 
+{-
 instance (Storable a, Prim a) => IsList (COO a) where
   type Item (COO a) = (Word32, Word32, a)
   fromList coo =
@@ -901,10 +1156,10 @@ hasDuplicates (COO rowIndices columnIndices _) = go 1
     n = V.length rowIndices
     go !i
       | i < n =
-        if rowIndices ! (i - 1) == rowIndices ! i
-          && columnIndices ! (i - 1) == columnIndices ! i
-          then True
-          else go (i + 1)
+          if rowIndices ! (i - 1) == rowIndices ! i
+            && columnIndices ! (i - 1) == columnIndices ! i
+            then True
+            else go (i + 1)
       | otherwise = False
 
 checkDuplicates :: COO a -> COO a
@@ -929,13 +1184,13 @@ mkCOO :: (Storable a, Prim a) => Vector Word32 -> Vector Word32 -> Vector a -> C
 mkCOO rowIndices columnIndices elements
   | V.length rowIndices /= V.length columnIndices
       || V.length rowIndices /= V.length elements =
-    error $
-      "lengths of rowIndices, columnIndices, and elements do not match: "
-        <> show (V.length rowIndices)
-        <> " vs. "
-        <> show (V.length columnIndices)
-        <> " vs. "
-        <> show (V.length elements)
+      error $
+        "lengths of rowIndices, columnIndices, and elements do not match: "
+          <> show (V.length rowIndices)
+          <> " vs. "
+          <> show (V.length columnIndices)
+          <> " vs. "
+          <> show (V.length elements)
   | otherwise = checkDuplicates . sortMatrix $ COO rowIndices columnIndices elements
 {-# SCC mkCOO #-}
 
@@ -949,23 +1204,24 @@ binarySearch atIndex lower₀ upper₀ !z = go lower₀ upper₀
     go !lower !upper
       | lower >= upper = Nothing
       | otherwise =
-        let !i = lower + (upper - lower) `div` 2
-            !x = atIndex i
-         in case compare x z of
-              LT -> go i upper
-              GT -> go lower i
-              EQ -> Just i
+          let !i = lower + (upper - lower) `div` 2
+              !x = atIndex i
+           in case compare x z of
+                LT -> go i upper
+                GT -> go lower i
+                EQ -> Just i
 
 csrIndex :: Storable a => CSR a -> Int -> Int -> Maybe a
 csrIndex csr i j
   | i < numberRows csr =
-    let begin = fromIntegral $ V.unsafeIndex (csrRowIndices csr) i
-        end = fromIntegral $ V.unsafeIndex (csrRowIndices csr) (i + 1)
-        atIndex k =
-          assert (k < V.length (csrColumnIndices csr)) $
-            V.unsafeIndex (csrColumnIndices csr) k
-     in V.unsafeIndex (csrData csr) <$> binarySearch atIndex begin end (fromIntegral j)
+      let begin = fromIntegral $ V.unsafeIndex (csrRowIndices csr) i
+          end = fromIntegral $ V.unsafeIndex (csrRowIndices csr) (i + 1)
+          atIndex k =
+            assert (k < V.length (csrColumnIndices csr)) $
+              V.unsafeIndex (csrColumnIndices csr) k
+       in V.unsafeIndex (csrData csr) <$> binarySearch atIndex begin end (fromIntegral j)
   | otherwise = error $ "index out of bounds: " <> show i
+-}
 
 fold1 :: Monad m => a -> (a -> Bool) -> (a -> a) -> (b -> a -> m b) -> b -> m b
 fold1 start cond inc combine init = go start init
@@ -975,14 +1231,15 @@ fold1 start cond inc combine init = go start init
       | otherwise = return acc
 {-# INLINE fold1 #-}
 
--- loop1 :: Monad m => a -> (a -> Bool) -> (a -> a) -> (a -> m ()) -> m ()
--- loop1 start cond inc f = go start
---   where
---     go !x
---       | cond x = f x >> go (inc x)
---       | otherwise = return ()
--- {-# INLINE loop1 #-}
+loop1 :: Monad m => a -> (a -> Bool) -> (a -> a) -> (a -> m ()) -> m ()
+loop1 start cond inc f = go start
+  where
+    go !x
+      | cond x = f x >> go (inc x)
+      | otherwise = return ()
+{-# INLINE loop1 #-}
 
+{-
 csrFoldRowM ::
   forall a b m.
   (Storable a, Prim a, Monad m) =>
@@ -1060,27 +1317,29 @@ fromCOO dim coo = CSR elements columnIndices rowIndices
         MV.unsafeModify rs (+ r) (i + 1)
       V.unsafeFreeze rs
 {-# SCC fromCOO #-}
+-}
 
 ----------------------------------------------------------------------------------------------------
 -- Functions for testing
 ----------------------------------------------------------------------------------------------------
 
+{-
 skipUniformly :: StatefulGen g m => Double -> g -> [a] -> m [a]
 skipUniformly p gen list
   | p < 0 || p > 1 = error $ "invalid probability p: " <> show p
   -- Special case p = 1 because uniformRM returns numbers in [0, 1] rather than [0, 1)
   | p == 1 = return list
   | otherwise = do
-    us <- replicateM (length list) $ uniformRM (0, 1) gen
-    return . map fst . filter ((< p) . snd) . zip list $ us
+      us <- replicateM (length list) $ uniformRM (0, 1) gen
+      return . map fst . filter ((< p) . snd) . zip list $ us
 
 graphErdosRenyi :: StatefulGen g m => Int -> Double -> g -> m [(Int, Int)]
 graphErdosRenyi n p gen
   | n < 0 = error $ "invalid number of nodes n: " <> show n
   | n == 0 = return []
   | otherwise = do
-    let edges = [(i, j) | i <- [0 .. (n - 2)], j <- [(i + 1) .. (n - 1)]]
-    skipUniformly p gen edges
+      let edges = [(i, j) | i <- [0 .. (n - 2)], j <- [(i + 1) .. (n - 1)]]
+      skipUniformly p gen edges
 
 randomHamiltonianM :: StatefulGen g m => Int -> Double -> g -> m Hamiltonian
 randomHamiltonianM n p gen = do
@@ -1093,22 +1352,23 @@ randomHamiltonianM n p gen = do
 
 randomHamiltonian :: RandomGen g => Int -> Double -> g -> (Hamiltonian, g)
 randomHamiltonian n p g = runStateGen g (randomHamiltonianM n p)
+-}
 
-loadFromCSV :: String -> IO Hamiltonian
-loadFromCSV filename = do
-  contents <- lines <$> T.readFile filename
-  let parse [i, c] = Left (Text.Read.read i, Text.Read.read c)
-      parse [i, j, c] = Right (Text.Read.read i, Text.Read.read j, Text.Read.read c)
-      parse parts = error $ "Parsing " <> show filename <> " failed: " <> show parts
-      numbers = parse . map toString . T.splitOn "," <$> contents
-      (coo, diagonal) = extractDiagonal . fromList $ rights numbers
-      csr = fromCOO Nothing coo
-      fields = runST $ do
-        f <- MV.replicate (numberRows csr) 0
-        forM_ (lefts numbers) $ \(i, c) -> MV.unsafeWrite f i c
-        V.unsafeFreeze f
-  return $ Hamiltonian csr fields diagonal
-{-# SCC loadFromCSV #-}
+-- loadFromCSV :: String -> IO Hamiltonian
+-- loadFromCSV filename = do
+--   contents <- lines <$> T.readFile filename
+--   let parse [i, c] = Left (Text.Read.read i, Text.Read.read c)
+--       parse [i, j, c] = Right (Text.Read.read i, Text.Read.read j, Text.Read.read c)
+--       parse parts = error $ "Parsing " <> show filename <> " failed: " <> show parts
+--       numbers = parse . map toString . T.splitOn "," <$> contents
+--       (coo, diagonal) = extractDiagonal . fromList $ rights numbers
+--       csr = fromCOO Nothing coo
+--       fields = runST $ do
+--         f <- MV.replicate (numberRows csr) 0
+--         forM_ (lefts numbers) $ \(i, c) -> MV.unsafeWrite f i c
+--         V.unsafeFreeze f
+--   return $ Hamiltonian csr fields diagonal
+-- {-# SCC loadFromCSV #-}
 
 ----------------------------------------------------------------------------------------------------
 -- Random number generation
@@ -1145,7 +1405,7 @@ uniformWord32R' !r !g₀ = go g₀
           (m :: Word64) = fromIntegral r * fromIntegral w
        in (fromIntegral (m `shiftR` 32), g')
 
-foreign import ccall unsafe "wordToFloat" wordToFloat :: Word32 -> Float
+-- foreign import ccall unsafe "wordToFloat" wordToFloat :: Word32 -> Float
 
 -- wordToFloat :: Word32 -> Float
 -- wordToFloat x = (fromIntegral i * m_inv_32) + 0.5 + m_inv_33
@@ -1155,11 +1415,12 @@ foreign import ccall unsafe "wordToFloat" wordToFloat :: Word32 -> Float
 --     i = fromIntegral x :: Int32
 -- {-# INLINE wordToFloat #-}
 
-uniformFloat01 :: RandomGen g => g -> (Float, g)
-uniformFloat01 g = (wordToFloat w, g')
-  where
-    (w, g') = genWord32 g 
-{-# INLINE uniformFloat01 #-}
+-- uniformFloat01 :: RandomGen g => g -> (Float, g)
+-- uniformFloat01 g = (wordToFloat w, g')
+--   where
+--     (w, g') = genWord32 g
+-- {-# INLINE uniformFloat01 #-}
+
 -- {-# SPECIALIZE uniformFloat01 :: Congru #-}
 
 -- {-# SCC uniformFloat01 #-}
@@ -1168,6 +1429,7 @@ uniformFloat01 g = (wordToFloat w, g')
 -- Foreign exported functions
 ----------------------------------------------------------------------------------------------------
 
+{-
 mkHamiltonian :: COO Double -> Vector Double -> Hamiltonian
 mkHamiltonian matrix field = Hamiltonian (fromCOO (Just numberSpins) matrix') field trace
   where
@@ -1187,7 +1449,8 @@ sa_create_hamiltonian numberCouplings rowIndicesPtr columnIndicesPtr dataPtr num
     let fromPtr count p = V.unsafeFromForeignPtr0 <$> newForeignPtr_ p <*> pure count
     fields <- fromPtr (fromIntegral numberSpins) fieldPtr
     matrix <-
-      mkCOO <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
+      mkCOO
+        <$> fromPtr (fromIntegral numberCouplings) rowIndicesPtr
         <*> fromPtr (fromIntegral numberCouplings) columnIndicesPtr
         <*> fromPtr (fromIntegral numberCouplings) dataPtr
     let hamiltonian = mkHamiltonian matrix fields
@@ -1226,6 +1489,9 @@ writeManyConfigurations p₀ xs₀ = go p₀ xs₀
       go p' xs
     go _ [] = pure ()
 
+-}
+
+{-
 sa_anneal ::
   -- | Hamiltonian
   StablePtr Hamiltonian ->
@@ -1252,7 +1518,8 @@ sa_anneal hamiltonianPtr xPtr₀ seed repetitions sweeps βPtr₀ βPtr₁ xPtr 
   -- putStrLn "Running sa_anneal ..."
   -- print =<< getNumCapabilities
   unless (repetitions >= 1) $
-    error $ "invalid number of repetitions: " <> show repetitions
+    error $
+      "invalid number of repetitions: " <> show repetitions
   hamiltonian <- deRefStablePtr hamiltonianPtr
   let n = dimension hamiltonian
       g₀ = CongruentialState seed
@@ -1324,3 +1591,4 @@ sa_find_ground_state _hamiltonian xPtr₀ seed _sweeps βPtr₀ βPtr₁ xPtr cu
       copyBytes bestEPtr src (V.length eBest * sizeOfDouble)
 
 foreign export ccall sa_find_ground_state :: StablePtr Hamiltonian -> Ptr Word64 -> Word32 -> Word32 -> Ptr Double -> Ptr Double -> Ptr Word64 -> Ptr Double -> Ptr Double -> IO ()
+-}

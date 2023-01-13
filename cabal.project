@@ -1,4 +1,4 @@
-packages: *
+packages: .
 
 -- package hdf5-hs
 --   profiling: false
@@ -19,8 +19,12 @@ package primitive
 
 package ising-glass-annealer
   optimization: 2
-  profiling: false
-  ghc-options: -fPIC -fno-prof-auto -ffun-to-thunk -feager-blackholing -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively
+  profiling: true
+  ghc-options: -fPIC -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively
+               -ddump-simpl -ddump-stg-final -ddump-cmm -ddump-asm -ddump-to-file
+
+-- -ddump-simpl -ddump-stg-final -ddump-cmm -ddump-to-file
+-- flags: -use-standalone
 
 -- source-repository-package
 --   type: git
