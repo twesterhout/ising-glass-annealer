@@ -167,7 +167,7 @@ def signs_to_bits(signs: NDArray[Any]) -> NDArray[np.uint64]:
     signs = np.sign(signs)
     mask = signs == 1
     assert np.all(mask | signs == -1)
-    bits = np.packbits(signs, axis=-1, bitorder="little")
+    bits = np.packbits(mask, axis=-1, bitorder="little")
     rem = len(bits) % 8
     if rem != 0:
         bits = np.pad(bits, ((0, 8 - rem),))

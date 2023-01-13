@@ -20,6 +20,16 @@ flag use-standalone
   manual: True
   default: False
 
+flag dont-build-shared
+  description: Build the shared library
+  manual: False
+  default: True
+
+flag build-example
+  description: Build the example solver
+  manual: True
+  default: False
+
 common common-options
   build-depends:       base >= 4.13.0.0
 --                      , relude
@@ -59,6 +69,7 @@ library
                      -- , vector-algorithms
                      , deepseq
                      , primitive
+                     , ghc-prim
                      -- , mtl
                      , random >= 1.2.0
                      -- , mwc-random
@@ -67,7 +78,8 @@ library
 
 foreign-library ising_glass_annealer
   import:              common-options
-  buildable:           False
+  if flag(dont-build-shared)
+    buildable:         False
   type:                native-shared
   if os(Windows) || os(darwin) || os(osx)
     options: standalone
@@ -88,18 +100,18 @@ foreign-library ising_glass_annealer
                      , primitive
                      , deepseq
 
--- executable ising-ground-state
---   import:              common-options
---   -- if !flag(build-example)
---   --   buildable:         False
---   hs-source-dirs:      app
---   main-is:             Main.hs
---   build-depends:       ising-glass-annealer
---                      , vector
---                      , hdf5-hs
---   ghc-options:         -threaded
---                        -rtsopts
---                        -with-rtsopts=-N
+executable ising-ground-state
+  import:              common-options
+  if !flag(build-example)
+    buildable:         False
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  build-depends:       ising-glass-annealer
+                     , vector
+                     , hdf5-hs
+  ghc-options:         -threaded
+                       -rtsopts
+                       -with-rtsopts=-N
 
 -- test-suite ising-ground-state-test
 --   import:              common-options
