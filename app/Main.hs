@@ -1,14 +1,19 @@
 module Main (main) where
 
-import Control.Concurrent (getNumCapabilities)
+import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.HDF5 as H5
 import Data.Int
-import qualified Data.List
 import Data.Vector.Storable (Vector)
 import qualified Data.Vector.Storable as V
 import qualified Data.Vector.Storable.Mutable as MV
 import Physics.Ising
+
+almostEqual :: Double -> Double -> Bool
+almostEqual a b = abs (a - b) < atol + rtol + max (abs a) (abs b)
+  where
+    !atol = 1.0e-12
+    !rtol = 1.0e-9
 
 main :: IO ()
 main = do
@@ -34,10 +39,11 @@ main = do
                   (β0, β1) = estimateBetas hamiltonian
                   schedule = exponentialSchedule (realToFrac β0) (realToFrac β1) sweeps
                   g = CongruentialState 12345
-              print (β0, β1)
+              -- print (β0, β1)
               MV.unsafeWith x $ \xPtr -> do
                 (e, _) <- anneal' schedule sweeps hamiltonian (Bits' xPtr) g
-                print (e, e + offset)
+                unless (almostEqual (e + offset) energy) $
+                  error $ "Annealing failed to converge: e=" <> show (e + offset) <> ", e_exact=" <> show energy
   -- (βEstimated₀, βEstimated₁) = estimateBetas hamiltonian
   -- β₀ <- if βPtr₀ == nullPtr then return βEstimated₀ else peek βPtr₀
   -- β₁ <- if βPtr₁ == nullPtr then return βEstimated₁ else peek βPtr₁
@@ -56,7 +62,7 @@ main = do
   -- print trueEnergy
   -- return $ energy
   -- mkHamiltonian matrix field
-  print =<< getNumCapabilities
+  -- print =<< getNumCapabilities
 
 -- let sweeps = 5000
 --     (β₀, β₁) = estimateBetas hamiltonian

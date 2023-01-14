@@ -21,8 +21,6 @@ package ising-glass-annealer
   optimization: 2
   profiling: false
   ghc-options: -fPIC -fno-prof-auto -ffun-to-thunk -fno-full-laziness -fexpose-all-unfoldings -fspecialise-aggressively
-               -ddump-simpl -ddump-stg-final -ddump-cmm -ddump-asm -ddump-to-file
-  flags: -dont-build-shared +use-standalone
 
 source-repository-package
   type: git

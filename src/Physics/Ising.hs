@@ -146,12 +146,6 @@ energyChangeBounds (Hamiltonian' m@(CSR' n _ _ _) field) = runST $ do
           de <- csrRowFold m i (\ !z _ _ x -> pure $ max z (abs x)) 0
           pure $ max acc $ 2 * (abs (P.indexOffPtr field i) + de)
 
--- almostEqual :: Double -> Double -> Bool
--- almostEqual a b = abs (a - b) < atol + rtol + max (abs a) (abs b)
---   where
---     !atol = 1.0e-12
---     !rtol = 1.0e-9
-
 shuffleVector :: (Prim i, PrimMonad m, RandomGen g) => Int -> Ptr i -> g -> m g
 shuffleVector !n !v !g₀ = go g₀ (n - 1)
   where

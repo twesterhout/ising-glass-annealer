@@ -18,7 +18,7 @@ conda: haskell
 	conda build -c conda-forge python/conda
 
 .PHONY: haskell
-haskell: cabal.project.local
+haskell:
 	cabal build
 	find dist-newstyle -name "libising_glass_annealer.$(SHARED_EXT)" \
 	  -exec install -m644 -C {} python/ising_glass_annealer/ \;
@@ -33,6 +33,13 @@ ifneq ($(CONDA_PREFIX),)
 	@echo "package ising-glass-annealer" >>$@
 	@echo "  extra-lib-dirs: $(CONDA_PREFIX)/lib" >>$@
 	@echo "  ghc-options: -pgmP $(CONDA_CC) -pgmc $(CONDA_CC) -pgma $(CONDA_CC) -pgml $(CONDA_CC)" >>$@
+	@echo "               -ddump-simpl -ddump-stg-final -ddump-cmm -ddump-asm -ddump-to-file" >>$@
+	@echo "  flags: +use-standalone -dont-build-shared +build-example" >>$@
+	@echo "" >>$@
+	@echo "package hdf5-hs" >>$@
+	@echo "  extra-include-dirs: $(CONDA_PREFIX)/include" >>$@
+	@echo "  extra-lib-dirs: $(CONDA_PREFIX)/lib" >>$@
+	@echo "  flags: +disable-default-paths" >>$@
 else
 	@echo "No Conda found, leaving cabal.project.local untouched ..."
 	@touch cabal.project.local
