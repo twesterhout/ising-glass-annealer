@@ -3,13 +3,12 @@
 module ForeignLibrary () where
 
 import Control.Concurrent (runInUnboundThread)
-import Control.Monad (forM_)
 import Control.DeepSeq
-import Data.Int 
+import Control.Monad (forM_)
+import Data.Int
+import qualified Data.Primitive.Ptr as P
 import Data.Word
 import Foreign.Ptr
-import qualified Data.Primitive.Ptr as P
-
 import Physics.Ising
 
 sa_anneal_f64 ::
@@ -95,18 +94,37 @@ sa_compute_energy_f64 ::
   Ptr Word64 ->
   IO Double
 sa_compute_energy_f64 c_n elts colIdxs rowIdxs field x = do
-    -- setNumCapabilities =<< getNumProcessors
-    -- putStrLn "Running sa_anneal ..."
-    -- print =<< getNumCapabilities
-    -- unless (repetitions >= 1) $
-    --   error $
-    --     "invalid number of repetitions: " <> show repetitions
-    -- hamiltonian <- deRefStablePtr hamiltonianPtr
-    let n = fromIntegral c_n
-        matrix = CSR' n elts colIdxs rowIdxs
-        hamiltonian = Hamiltonian' matrix field
-        e = computeEnergy' hamiltonian (Bits' x)
-    e `deepseq` pure e
+  -- setNumCapabilities =<< getNumProcessors
+  -- putStrLn "Running sa_anneal ..."
+  -- print =<< getNumCapabilities
+  -- unless (repetitions >= 1) $
+  --   error $
+  --     "invalid number of repetitions: " <> show repetitions
+  -- hamiltonian <- deRefStablePtr hamiltonianPtr
+  let n = fromIntegral c_n
+      matrix = CSR' n elts colIdxs rowIdxs
+      hamiltonian = Hamiltonian' matrix field
+      e = computeEnergy' hamiltonian (Bits' x)
+  e `deepseq` pure e
 
 foreign export ccall "sa_compute_energy_f64"
   sa_compute_energy_f64 :: Int32 -> Ptr Double -> Ptr Int32 -> Ptr Int32 -> Ptr Double -> Ptr Word64 -> IO Double
+
+sa_estimate_betas_f64 ::
+  Int32 ->
+  Ptr Double ->
+  Ptr Int32 ->
+  Ptr Int32 ->
+  Ptr Double ->
+  Ptr Double ->
+  Ptr Double ->
+  IO ()
+sa_estimate_betas_f64 c_n elts colIdxs rowIdxs field minBeta maxBeta = do
+  let n = fromIntegral c_n
+      hamiltonian = Hamiltonian' (CSR' n elts colIdxs rowIdxs) field
+      (beta0, beta1) = estimateBetas hamiltonian
+  P.writeOffPtr minBeta 0 beta0
+  P.writeOffPtr maxBeta 0 beta1
+
+foreign export ccall "sa_estimate_betas_f64"
+  sa_estimate_betas_f64 :: Int32 -> Ptr Double -> Ptr Int32 -> Ptr Int32 -> Ptr Double -> Ptr Double -> Ptr Double -> IO ()

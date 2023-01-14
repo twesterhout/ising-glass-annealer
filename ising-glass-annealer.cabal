@@ -70,6 +70,7 @@ library
                      , deepseq
                      , primitive
                      , ghc-prim
+                     , strict-identity
                      -- , mtl
                      , random >= 1.2.0
                      -- , mwc-random

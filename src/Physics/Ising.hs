@@ -23,7 +23,7 @@ where
 import Control.DeepSeq (NFData, deepseq)
 import Control.Monad (when)
 import Control.Monad.Primitive (PrimMonad)
-import Control.Monad.ST (ST, runST)
+import Control.Monad.StrictIdentity
 import Data.Bits
 import Data.Int (Int32)
 import Data.Primitive.Ptr (Ptr)
@@ -104,17 +104,17 @@ estimateBetas :: (Prim i, Integral i, Prim a, RealFloat a) => Hamiltonian' i a -
 estimateBetas hamiltonian = (minBeta, maxBeta)
   where
     (minDeltaEnergy, maxDeltaEnergy) = energyChangeBounds hamiltonian
-    minBeta = max (log 2 / maxDeltaEnergy) 1e-3
-    maxBeta = min (log 100 / minDeltaEnergy) 1e5
+    minBeta = log 2 / maxDeltaEnergy
+    maxBeta = log 100 / minDeltaEnergy
 
-csrRowFold ::
+csrRowFoldM ::
   (Prim i, Integral i, Prim a, Monad m) =>
   CSR' i a ->
   Int ->
   (b -> i -> i -> a -> m b) ->
   b ->
   m b
-csrRowFold (CSR' _ elts colIdxs rowIdxs) i f = fold1 b (< e) (+ 1) combine
+csrRowFoldM (CSR' _ elts colIdxs rowIdxs) i f = fold1 b (< e) (+ 1) combine
   where
     b = fromIntegral $ P.indexOffPtr rowIdxs i
     e = fromIntegral $ P.indexOffPtr rowIdxs (i + 1)
@@ -123,28 +123,44 @@ csrRowFold (CSR' _ elts colIdxs rowIdxs) i f = fold1 b (< e) (+ 1) combine
         j = P.indexOffPtr colIdxs k
         x = P.indexOffPtr elts k
 
+csrRowFold ::
+  (Prim i, Integral i, Prim a) => CSR' i a -> Int -> (b -> i -> i -> a -> b) -> b -> b
+csrRowFold matrix i0 f = runStrictIdentity . csrRowFoldM matrix i0 f'
+  where
+    f' z i j x = let !z' = f z i j x in pure z'
+
+csrFold ::
+  (Prim i, Integral i, Prim a, Monad m) =>
+  CSR' i a ->
+  (b -> i -> i -> a -> m b) ->
+  b ->
+  m b
+csrFold matrix@(CSR' n _ _ _) f = fold1 0 (< n) (+ 1) combine
+  where
+    combine !acc !k = do !acc' <- csrRowFoldM matrix k f acc; pure acc'
+
 energyChangeBounds ::
   forall i a.
   (Prim i, Integral i, Prim a, RealFloat a) =>
   Hamiltonian' i a ->
   (a, a)
-energyChangeBounds (Hamiltonian' m@(CSR' n _ _ _) field) = runST $ do
+energyChangeBounds (Hamiltonian' m@(CSR' n _ _ _) field) = runStrictIdentity $ do
   l <- lower
   u <- upper
   pure (max l (2.220446049250313e-16 * u), u)
   where
-    lower :: ST s a
-    lower = fold1 0 (< n) (+ 1) combine (1 / 0)
+    !lower = fold1 0 (< n) (+ 1) combine (1 / 0)
       where
-        combine !acc i = do
-          de <- csrRowFold m i (\ !z _ _ x -> pure $ min z (abs x)) (1 / 0)
+        combine !acc !i = do
+          de <- csrRowFoldM m i (\ !z _ _ x -> pure $ min z (abs x)) (1 / 0)
           pure $ min acc $ 2 * (abs (P.indexOffPtr field i) + de)
-    upper :: ST s a
-    upper = fold1 0 (< n) (+ 1) combine 0
+    !upper = fold1 0 (< n) (+ 1) combine 0
       where
         combine !acc i = do
-          de <- csrRowFold m i (\ !z _ _ x -> pure $ max z (abs x)) 0
+          de <- csrRowFoldM m i (\ !z _ _ x -> pure $ max z (abs x)) 0
           pure $ max acc $ 2 * (abs (P.indexOffPtr field i) + de)
+
+-- diagonalEnergyContribution ::
 
 shuffleVector :: (Prim i, PrimMonad m, RandomGen g) => Int -> Ptr i -> g -> m g
 shuffleVector !n !v !g₀ = go g₀ (n - 1)
@@ -236,8 +252,12 @@ computeEnergyChanges' (Hamiltonian' matrix@(CSR' n _ _ _) field) bits energyChan
   loop1 0 (< n) (+ 1) $ \i ->
     P.writeOffPtr energyChanges i (changeUponFlip i)
   where
-    changeUponFlip i =
-      -indexBits bits i * (4 * matrixVectorElement matrix bits i + 2 * P.indexOffPtr field i)
+    changeUponFlip i = -indexBits bits i * (4 * offDiagMatVec i + 2 * P.indexOffPtr field i)
+    offDiagMatVec i' = csrRowFold matrix i' combine 0
+      where
+        combine !acc !i !j !x
+          | i /= j = acc + x * indexBits bits (fromIntegral j)
+          | otherwise = acc
 {-# SPECIALIZE computeEnergyChanges' :: Hamiltonian' Int32 Float -> Bits' -> Ptr Float -> IO () #-}
 {-# SPECIALIZE computeEnergyChanges' :: Hamiltonian' Int32 Double -> Bits' -> Ptr Double -> IO () #-}
 
@@ -255,10 +275,10 @@ flipAndUpdateEnergyChanges' (CSR' _ elts colIdxs rowIdxs) (Bits' bits) energyCha
   -- computeEnergyChanges' h (Bits' bits) energyChanges
   loop1 b (< e) (+ 1) $ \k -> do
     let j = fromIntegral (P.indexOffPtr colIdxs k)
-        coupling = P.indexOffPtr elts k
-    sigma <- readBits (Bits' bits) j
-    de <- P.readOffPtr energyChanges j
-    P.writeOffPtr energyChanges j (de + pre * coupling * sigma)
+    when (j /= i) $ do
+      sigma <- readBits (Bits' bits) j
+      de <- P.readOffPtr energyChanges j
+      P.writeOffPtr energyChanges j (de + pre * sigma * P.indexOffPtr elts k)
 {-# SCC flipAndUpdateEnergyChanges' #-}
 {-# SPECIALIZE flipAndUpdateEnergyChanges' :: CSR' Int32 Double -> Bits' -> Ptr Double -> Int -> IO () #-}
 

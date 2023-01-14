@@ -80,6 +80,10 @@ def load_shared_library():
                                      double const *, int32_t const *, int32_t const *,
                                      double const *,
                                      uint64_t const *);
+        void sa_estimate_betas_f64(int32_t,
+                                   double const *, int32_t const *, int32_t const *,
+                                   double const *,
+                                   double *, double *);
     """
     )
     return ffi.dlopen(os.path.join(get_package_path(), get_library_name()))
@@ -166,7 +170,7 @@ class Hamiltonian:
 def signs_to_bits(signs: NDArray[Any]) -> NDArray[np.uint64]:
     signs = np.sign(signs)
     mask = signs == 1
-    assert np.all(mask | signs == -1)
+    assert np.all(mask | (signs == -1))
     bits = np.packbits(mask, axis=-1, bitorder="little")
     rem = len(bits) % 8
     if rem != 0:
@@ -268,10 +272,38 @@ def anneal(
     exchange = hamiltonian.exchange
     if not isinstance(exchange, scipy.sparse.csr_matrix):
         exchange = exchange.tocsr()
+
+    # exchange = 0.5 * (matrix + matrix.transpose())
+
     elts = np.asarray(exchange.data, dtype=np.float64)
     cols = np.asarray(exchange.indices, dtype=np.int32)
     rows = np.asarray(exchange.indptr, dtype=np.int32)
     field = np.asarray(hamiltonian.field, dtype=np.float64)
+
+    max_coupling: Optional[float] = None
+    if beta0 is None and beta1 is None:
+        # Let's rescale the Hamiltonian such that the largest coupling is 1
+        max_coupling = float(np.max(np.abs(elts)))
+        elts = elts / max_coupling
+        field = field / max_coupling
+
+    if beta0 is None or beta1 is None:
+        c_beta0 = ffi.new("double *")
+        c_beta1 = ffi.new("double *")
+        _lib.sa_estimate_betas_f64(
+            n_bits,
+            ffi.from_buffer("double const[]", elts, require_writable=False),
+            ffi.from_buffer("int32_t const[]", cols, require_writable=False),
+            ffi.from_buffer("int32_t const[]", rows, require_writable=False),
+            ffi.from_buffer("double const[]", field, require_writable=False),
+            c_beta0,
+            c_beta1,
+        )
+        if beta0 is None:
+            beta0 = float(c_beta0[0])
+        if beta1 is None:
+            beta1 = float(c_beta1[0])
+    print(beta0, beta1)
 
     configurations = np.array(
         [signs_to_bits(x) for x in np.random.choice([-1, 1], size=(repetitions, n_bits))]
@@ -294,8 +326,11 @@ def anneal(
     )
     tock = time.time()
 
+    if max_coupling is not None:
+        energies *= max_coupling
+
     for (x, e) in zip(configurations, energies):
-        # print(x, hamiltonian.energy(x), e)
+        print(x, hamiltonian.energy(x), e)
         assert np.isclose(hamiltonian.energy(x), e, rtol=1e-10, atol=1e-12)
     if only_best:
         index = np.argmin(energies)
