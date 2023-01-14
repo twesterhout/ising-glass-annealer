@@ -8,29 +8,33 @@ source:
   path: ../
 
 build:
-  number: 4
+  number: 0
   run_exports:
     - python
   ignore_run_exports:
     - numpy
     - scipy
-    - loguru
+    - numactl-libs-cos7-x86_64 # [linux]
+    - sysroot_linux-64 # [linux]
  
 requirements:
   build:
     - {{ compiler('c') }}
-    - numactl-devel-cos6-x86_64
-
   host:
     - python
+    - pip
+    - cffi>=1.15
     - numpy
     - scipy
-    - loguru
-
+    - gmp
+    - libffi
+    - numactl-devel-cos7-x86_64 # [linux]
   run:
-    - sysroot_linux-64
-    - numactl-cos6-x86_64
-    - python
+    - cffi>=1.15
     - numpy
     - scipy
-    - loguru
+    # Runtime libraries needed the Haskell code
+    - gmp
+    - libffi
+    - numactl-libs-cos7-x86_64 # [linux]
+    - sysroot_linux-64 # [linux]

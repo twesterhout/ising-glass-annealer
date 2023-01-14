@@ -79,7 +79,7 @@ linearSchedule ::
   (Int -> Double)
 linearSchedule β₀ β₁ numberSweeps
   | numberSweeps < 0 = error $ "invalid number of sweeps: " <> show numberSweeps
-  | numberSweeps == 0 = \_ -> 0
+  | numberSweeps == 0 = const 0
   | otherwise = \i -> β₀ + c * fromIntegral i
   where
     c = (β₁ - β₀) / fromIntegral (numberSweeps - 1)

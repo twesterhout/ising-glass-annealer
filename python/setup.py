@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, Extension
 import os
 import re
 
@@ -21,6 +21,11 @@ setup(
     author_email="14264576+twesterhout@users.noreply.github.com",
     license="BSD3",
     packages=["ising_glass_annealer"],
-    install_requires=["numpy", "scipy", "loguru"],
+    install_requires=[
+        "cffi>=1.15.0",
+        "numpy>=1.19.0",
+        "scipy",
+    ],
+    package_data={"ising_glass_annealer": ["*.so"]},
     zip_safe=False,
 )

@@ -1,63 +1,44 @@
-PREFIX = $(PWD)/python/prefix
-PROJECT_NAME = ising-glass-annealer
-LIBRARY_NAME = $(subst -,_,$(PROJECT_NAME))
-VERSION = 0.2.0.0
+.POSIX:
+.SUFFIXES:
 
-# We need to run Cabal before trying to guess CABAL_BUILD_DIR etc.
-CABAL_OUTPUT = $(shell cabal v2-build)
-$(info $(CABAL_OUTPUT))
+UNAME = $(shell uname)
+ifeq ($(UNAME), Darwin)
+  SHARED_EXT = dylib
+  CONDA_CC = $(CC)
+  CONDA_PREFIX = 
+else
+  SHARED_EXT = so
+  CONDA_CC ?= $(shell conda run -n ci_devel bash -c "which \$${CC}")
+  CONDA_PREFIX ?= $(shell conda run -n ci_devel bash -c "echo \$${CONDA_PREFIX}")
+endif
 
-GHC_VERSION ?= $(shell ghc --numeric-version)
-CABAL_BUILD_DIR = $(shell dirname $$(find dist-newstyle/build -name 'libHS$(PROJECT_NAME)*.a' | xargs ls -t | head -n 1))
-CABAL_AUTOGEN_DIR = $(CABAL_BUILD_DIR)/global-autogen
+.PHONY: conda
+conda: haskell
+	# conda run -n ci_devel bash -c
+	conda build -c conda-forge python/conda
 
-HS_LDFLAGS = $(shell cat "$(CABAL_AUTOGEN_DIR)/HS_LIBRARY_PATHS_LIST" | sed 's/^/-L"/;s/$$/"/' | tr '\n' ' ')
-HS_LDFLAGS += $(shell cat "$(CABAL_AUTOGEN_DIR)/HS_LIBRARIES_LIST" | sed 's/^/-l/' | tr '\n' ' ')
-C_LDFLAGS = $(shell cat "$(CABAL_AUTOGEN_DIR)/EXTRA_LIBRARIES_LIST" | sed 's/^/-l/' | tr '\n' ' ')
+.PHONY: haskell
+haskell: cabal.project.local
+	cabal build
+	find dist-newstyle -name "libising_glass_annealer.$(SHARED_EXT)" \
+	  -exec install -m644 -C {} python/ising_glass_annealer/ \;
+ifeq ($(UNAME), Linux)
+	patchelf --set-rpath '$$ORIGIN' python/ising_glass_annealer/libising_glass_annealer.$(SHARED_EXT)
+endif
 
-PKGCONFIG_FILE = $(PREFIX)/lib/pkgconfig/$(LIBRARY_NAME).pc
-
-all: shared include pkgconfig
-shared: $(PREFIX)/lib/lib$(LIBRARY_NAME).so
-pkgconfig: $(PKGCONFIG_FILE)
-include: $(PREFIX)/include/ising_glass_annealer.h
-
-build/api.txt: cbits/init.c
-	mkdir -p build
-	cat $< \
-		| tr '\n' ' ' \
-		| sed -E 's/.*sa_symbol_table\s*\[\]\s*=\s*\{([^}]*)\};.*/\1/' \
-		| tr -d '& ' \
-		| tr ',' '\n' \
-		> $@
-
-$(PREFIX)/include/ising_glass_annealer.h: cbits/ising_glass_annealer.h
-	mkdir -p $$(dirname $@)
-	install -m 644 $< $@
-
-$(PREFIX)/lib/lib$(LIBRARY_NAME).so: cbits/init.c $(CABAL_BUILD_DIR)/libHS$(PROJECT_NAME)* build/api.txt $(CABAL_AUTOGEN_DIR)/HS_LIBRARY_PATHS_LIST $(CABAL_AUTOGEN_DIR)/HS_LIBRARIES_LIST $(CABAL_AUTOGEN_DIR)/EXTRA_LIBRARIES_LIST
-	mkdir -p $$(dirname $@)
-	ghc -v --make -no-hs-main -shared -threaded \
-		-fPIC -g -O2 -optc-O -fexpose-all-unfoldings -fspecialise-aggressively \
-		-pgmP $(CC) -pgmc $(CC) -pgma $(CC) -pgml $(CC) \
-		-optl -Wl,--retain-symbols-file=build/api.txt \
-		$< -o $@ \
-		-L"$(CABAL_BUILD_DIR)" \
-		$(HS_LDFLAGS) $(C_LDFLAGS)
-
-$(PKGCONFIG_FILE):
-	mkdir -p $$(dirname $(PKGCONFIG_FILE))
-	printf "# Generated automatically by Makefile\n"    > "$(PKGCONFIG_FILE)"
-	printf "prefix=$(PREFIX)\n"                        >> "$(PKGCONFIG_FILE)"
-	printf "libdir=${PREFIX}/lib\n"                    >> "$(PKGCONFIG_FILE)"
-	printf "includedir=$(PREFIX)/include\n"            >> "$(PKGCONFIG_FILE)"
-	printf "Name: $(LIBRARY_NAME)\n"                   >> "$(PKGCONFIG_FILE)"
-	printf "Description: See README\n"                 >> "$(PKGCONFIG_FILE)"
-	printf "Version: $(VERSION)\n"                     >> "$(PKGCONFIG_FILE)"
-	printf "Libs: -L\$${libdir} -l$(LIBRARY_NAME)\n"   >> "$(PKGCONFIG_FILE)"
-	printf "Libs.private:\n"                           >> "$(PKGCONFIG_FILE)"
-	printf "Cflags: -I\$${includedir}\n"               >> "$(PKGCONFIG_FILE)"
+cabal.project.local:
+ifneq ($(CONDA_PREFIX),)
+	@echo "Creating cabal.project.local ..."
+	@echo "-- DO NOT MODIFY (Generated automatically by Makefile)" >$@
+	@echo "package ising-glass-annealer" >>$@
+	@echo "  extra-lib-dirs: $(CONDA_PREFIX)/lib" >>$@
+	@echo "  ghc-options: -pgmP $(CONDA_CC) -pgmc $(CONDA_CC) -pgma $(CONDA_CC) -pgml $(CONDA_CC)" >>$@
+else
+	@echo "No Conda found, leaving cabal.project.local untouched ..."
+	@touch cabal.project.local
+endif
 
 .PHONY: clean
 clean:
-	rm -rf build/ cbits/init.o
+	rm -f python/ising_glass_annealer/*.so
+	cabal clean

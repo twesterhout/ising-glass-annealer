@@ -33,7 +33,7 @@ import os
 import sys
 import time
 import weakref
-from typing import Optional
+from typing import Any, Optional
 
 import cffi
 import numpy as np
