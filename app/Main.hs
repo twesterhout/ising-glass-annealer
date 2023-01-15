@@ -24,7 +24,6 @@ main = do
     (rowIdxs :: Vector Int32) <- H5.readDataset =<< H5.open file "indptr"
     (field :: Vector Double) <- H5.readDataset =<< H5.open file "field"
     ((H5.Scalar energy) :: H5.Scalar Double) <- H5.readDataset =<< H5.open file "energy"
-    ((H5.Scalar offset) :: H5.Scalar Double) <- H5.readDataset =<< H5.open file "offset"
 
     let n = V.length rowIdxs - 1
         sweeps = 5196
@@ -42,8 +41,8 @@ main = do
               -- print (β0, β1)
               MV.unsafeWith x $ \xPtr -> do
                 (e, _) <- anneal' schedule sweeps hamiltonian (Bits' xPtr) g
-                unless (almostEqual (e + offset) energy) $
-                  error $ "Annealing failed to converge: e=" <> show (e + offset) <> ", e_exact=" <> show energy
+                unless (almostEqual e energy) $
+                  error $ "Annealing failed to converge: e=" <> show e <> ", e_exact=" <> show energy
   -- (βEstimated₀, βEstimated₁) = estimateBetas hamiltonian
   -- β₀ <- if βPtr₀ == nullPtr then return βEstimated₀ else peek βPtr₀
   -- β₁ <- if βPtr₁ == nullPtr then return βEstimated₁ else peek βPtr₁

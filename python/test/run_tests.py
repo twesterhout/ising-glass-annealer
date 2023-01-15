@@ -10,10 +10,14 @@ def example(hdf5_file: str = "../test/sa_test_kagome_16.h5", repetitions: int = 
         indices = np.asarray(f["indices"])
         indptr = np.asarray(f["indptr"])
         field = np.asarray(f["field"])
-        energy = np.asarray(f["energy"])
+        energy = float(f["energy"][:])
+        signs = np.asarray(f["signs"])
         # offset = np.asarray(f["offset"])
         hamiltonian = sa.Hamiltonian(scipy.sparse.csr_matrix((data, indices, indptr)), field)
-        (x, e) = sa.anneal(hamiltonian, repetitions=repetitions, only_best=False)
+        (x, e) = sa.anneal(hamiltonian, repetitions=repetitions, only_best=True)
+        assert np.isclose(e, energy)
+        print(signs == x)
+
         print("Ground state energy:", energy)
         print("SA energies:", e)
 
