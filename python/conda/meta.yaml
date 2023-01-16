@@ -8,14 +8,7 @@ source:
   path: ../
 
 build:
-  number: 0
-  run_exports:
-    - python
-  ignore_run_exports:
-    - numpy
-    - scipy
-    - numactl-libs-cos7-x86_64 # [linux]
-    - sysroot_linux-64 # [linux]
+  number: 1
  
 requirements:
   build:
@@ -30,6 +23,7 @@ requirements:
     - libffi
     - numactl-devel-cos7-x86_64 # [linux]
   run:
+    - python
     - cffi>=1.15
     - numpy
     - scipy
