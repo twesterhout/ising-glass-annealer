@@ -4,12 +4,12 @@
 UNAME = $(shell uname)
 ifeq ($(UNAME), Darwin)
   SHARED_EXT = dylib
-  CONDA_CC = $(CC)
-  CONDA_PREFIX = 
+  # CONDA_CC = $(CC)
+  # CONDA_PREFIX = 
 else
   SHARED_EXT = so
-  CONDA_CC ?= $(shell conda run -n ci_devel bash -c "which \$${CC}")
-  CONDA_PREFIX ?= $(shell conda run -n ci_devel bash -c "echo \$${CONDA_PREFIX}")
+  # CONDA_CC ?= $(shell conda run -n ci_devel bash -c "which \$${CC}")
+  # CONDA_PREFIX ?= $(shell conda run -n ci_devel bash -c "echo \$${CONDA_PREFIX}")
 endif
 
 .PHONY: conda
