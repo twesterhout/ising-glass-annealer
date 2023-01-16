@@ -93,48 +93,12 @@ _lib = load_shared_library()
 _lib.sa_init()
 _finalizer = weakref.finalize(_lib, _lib.sa_exit)
 
-# def _create_hamiltonian(exchange, field):
-#     if not isinstance(exchange, scipy.sparse.spmatrix):
-#         raise TypeError("'exchange' must be a sparse matrix, but got {}".format(type(exchange)))
-#     if not isinstance(exchange, scipy.sparse.coo_matrix):
-#         warnings.warn(
-#             "ising_ground_state.anneal works with sparse matrices in COO format, but 'exchange' is "
-#             "not. A copy of 'exchange' will be created with proper format. This might incur some "
-#             "performance overhead."
-#         )
-#         exchange = scipy.sparse.coo_matrix(exchange)
-#
-#     field = np.asarray(field, dtype=np.float64, order="C")
-#     if field.ndim != 1:
-#         raise ValueError(
-#             "'field' must be a vector, but got a {}-dimensional array".format(field.ndim)
-#         )
-#     if exchange.shape != (len(field), len(field)):
-#         raise ValueError(
-#             "dimensions of 'exchange' and 'field' do not match: {} vs {}".format(
-#                 exchange.shape, len(field)
-#             )
-#         )
-#
-#     row_indices = np.asarray(exchange.row, dtype=np.uint32, order="C")
-#     column_indices = np.asarray(exchange.col, dtype=np.uint32, order="C")
-#     elements = np.asarray(exchange.data, dtype=np.float64, order="C")
-#     return _lib.sa_create_hamiltonian(
-#         exchange.nnz,
-#         row_indices.ctypes.data_as(POINTER(c_uint32)),
-#         column_indices.ctypes.data_as(POINTER(c_uint32)),
-#         elements.ctypes.data_as(POINTER(c_double)),
-#         len(field),
-#         field.ctypes.data_as(POINTER(c_double)),
-#     )
-
 
 class Hamiltonian:
-    def __init__(self, exchange: scipy.sparse.spmatrix, field: NDArray[np.uint64]):
-        # self._payload = _create_hamiltonian(exchange, field)
-        # self._finalizer = weakref.finalize(self, _lib.sa_destroy_hamiltonian, self._payload)
-        # self.shape = exchange.shape
-        # self.dtype = np.float64
+    exchange: scipy.sparse.csr_matrix
+    field: NDArray[np.float64]
+
+    def __init__(self, exchange: scipy.sparse.spmatrix, field: NDArray[np.float64]):
         self.exchange = exchange.tocsr()
         self.field = np.asarray(field, dtype=np.float64)
 
@@ -178,63 +142,17 @@ def signs_to_bits(signs: NDArray[Any]) -> NDArray[np.uint64]:
     return bits.view(np.uint64)
 
 
-def example01():
-    # fmt: off
-    matrix = np.array([[0, 2, 3],
-                       [2, 0, 1],
-                       [3, 1, 0]], dtype=np.float64)
-    # fmt: on
-    matrix = scipy.sparse.csr_matrix(matrix)
-    field = np.zeros(3, dtype=np.float64)
-
-    h = Hamiltonian(matrix, field)
-    x = np.array([-1, -1, 1])
-    e = h.energy(signs_to_bits(x))
-    print(np.dot(x, matrix @ x))
-    print(e)
-
-
-def example02():
-    n = 200
-    matrix = scipy.sparse.random(n, n, density=0.1, format="coo", dtype=np.float64)
-    matrix.setdiag(np.zeros(n))
-    matrix = 0.5 * (matrix + matrix.transpose())
-    matrix.eliminate_zeros()
-    field = np.random.rand(n)
-
-    h = Hamiltonian(matrix, field)
-    x = np.random.choice([-1, 1], size=n)
-    e = h.energy(signs_to_bits(x))
-    print(np.dot(x, matrix @ x) + np.dot(x, field))
-    print(e)
-
-
-def example03():
-    np.random.seed(42)
-    n = 10
-    matrix = scipy.sparse.random(n, n, density=0.3, format="coo", dtype=np.float64)
-    matrix.setdiag(np.zeros(n))
-    matrix = 0.5 * (matrix + matrix.transpose())
-    matrix.eliminate_zeros()
-    field = np.zeros(n)
-    # np.random.rand(n)
-
-    h = Hamiltonian(matrix, field)
-    (e, x) = anneal(h, repetitions=2, number_sweeps=1000, beta0=1e-2, beta1=1e0, only_best=True)
-    print(e, x)
-
-    x_best = np.array([0], dtype=np.uint64)
-    e_best = h.energy(x_best)
-    for x in range(2**n):
-        e = h.energy(np.array([x], dtype=np.uint64))
-        if e < e_best:
-            x_best[0] = x
-            e_best = e
-    print(x_best, e_best)
-    # x = np.random.choice([-1, 1], size=n)
-    # e = h.energy(signs_to_bits(x))
-    # print(np.dot(x, matrix @ x) + np.dot(x, field))
-    # print(e)
+def bits_to_signs(bits: NDArray[np.uint64], count: int) -> NDArray[np.float64]:
+    assert bits.dtype == np.uint64
+    n_words = (count + 63) // 64
+    if n_words != bits.shape[-1]:
+        raise ValueError(
+            "'bits' has wrong shape: {}; expected {} elements along the last dimension"
+            "".format(bits.shape, n_words)
+        )
+    signs = np.unpackbits(bits.view(np.uint8), count=count, bitorder="little").astype(np.float64)
+    signs = 2 * signs - 1
+    return signs
 
 
 def anneal(
@@ -303,7 +221,7 @@ def anneal(
             beta0 = float(c_beta0[0])
         if beta1 is None:
             beta1 = float(c_beta1[0])
-    print(beta0, beta1)
+    # print(beta0, beta1)
 
     configurations = np.array(
         [signs_to_bits(x) for x in np.random.choice([-1, 1], size=(repetitions, n_bits))]
