@@ -44,10 +44,12 @@ jobs:
         source ~/.profile
         conda activate ci_devel
         ghcup rm ghc ${{ matrix.ghc }}
+        echo $LD
+        echo $CC
         ghcup install ghc \
           --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
           ${{ matrix.ghc }}
-        cat /usr/local/.ghcup/logs/ghcup.log
+        # cat /usr/local/.ghcup/logs/ghcup.log
     - uses: actions/cache@v3
       name: Cache ~/.cabal/store
       with:
@@ -61,7 +63,10 @@ jobs:
 
     - name: Build
       run: |
-        mamba env list
+        source ~/.profile
+        conda activate ci_devel
+        echo $LD
+        echo $CC
         make cabal.project.local
         make haskell
 
