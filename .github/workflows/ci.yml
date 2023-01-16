@@ -93,4 +93,4 @@ jobs:
         run: |
           wget -q https://github.com/TheAssassin/pyuploadtool/releases/download/continuous/pyuploadtool-x86_64.AppImage
           chmod +x pyuploadtool-x86_64.AppImage
-          ./pyuploadtool-x86_64.AppImage conda_output
+          ./pyuploadtool-x86_64.AppImage 'conda-packages-linux/linux-64/ising-glass-annealer-*.tar.bz2'
