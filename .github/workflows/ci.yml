@@ -23,51 +23,55 @@ jobs:
         ghc-version: ${{ matrix.ghc }}
         cabal-version: ${{ matrix.cabal }}
 
-    - uses: conda-incubator/setup-miniconda@v2
-      if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
-      with:
-        mamba-version: "*"
-        miniforge-version: latest
-        channels: conda-forge,defaults
-        channel-priority: true
-        auto-activate-base: false
-
-    - name: Make Conda environment
+    - name: Install system dependencies (Linux)
       if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
       run: |
-        mamba env create -f conda-ci-linux.yml
-        mamba env list
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libnuma-dev libgmp-dev
 
     - name: Install GHC with -fPIC on Linux
       if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
       run: |
-        source ~/.profile
-        conda activate ci_devel
         ghcup rm ghc ${{ matrix.ghc }}
-        echo $LD
-        echo $CC
+        rm -r ~/.cabal/store
         ghcup install ghc \
           --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
           ${{ matrix.ghc }}
-        # cat /usr/local/.ghcup/logs/ghcup.log
     - uses: actions/cache@v3
       name: Cache ~/.cabal/store
       with:
         path: ~/.cabal/store
         key: ${{ runner.os }}-${{ matrix.ghc }}-cabal
-    # - name: Install system dependencies (Linux)
+
+    - uses: conda-incubator/setup-miniconda@v2
+        with:
+          environment-file: conda-ci-linux.yml
+          auto-activate-base: false
+
+    # - uses: conda-incubator/setup-miniconda@v2
     #   if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
-    #   run: |
-    #     sudo apt-get update
-    #     sudo apt-get install -y --no-install-recommends libnuma-dev libgmp-dev
+    #   with:
+    #     mamba-version: "*"
+    #     miniforge-version: latest
+    #     channels: conda-forge,defaults
+    #     channel-priority: true
+    #     auto-activate-base: false
+
+    - name: Check Conda environments
+      shell: bash -el {0}
+      run: |
+        conda info
+        conda env list
+        echo "CONDA_CC=$CONDA_CC"
+        echo "CONDA_PREFIX=$CONDA_PREFIX"
 
     - name: Build
+      shell: bash -el {0}
       run: |
-        source ~/.profile
-        conda activate ci_devel
-        echo $LD
-        echo $CC
-        make CONDA_CC=$CC CONDA_PREFIX=$CONDA_PREFIX cabal.project.local
+        CONDA_CC=$(conda run -n test bash -c "which \${CC}")
+        CONDA_PREFIX=$(micromamba run -n test bash -c "which \${CONDA_PREFIX}")
+        
+        make CONDA_CC=$CONDA_CC CONDA_PREFIX=$CONDA_PREFIX cabal.project.local
         cat cabal.project.local
         make CONDA_CC=$CC CONDA_PREFIX=$CONDA_PREFIX haskell
 
@@ -78,11 +82,11 @@ jobs:
     #     cabal run ising-ground-state
 
     - name: Package
+      shell: bash -el {0}
       run: |
-        source ~/.profile
-        conda activate ci_devel
         mkdir $GITHUB_WORKSPACE/conda_output
-        mamba build -c conda-forge --output-folder=$GITHUB_WORKSPACE/conda_output python/conda/
+        conda activate test
+        conda build --output-folder=$GITHUB_WORKSPACE/conda_output python/conda/
     
     - uses: actions/upload-artifact@v3
       with:
