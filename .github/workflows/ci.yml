@@ -22,24 +22,6 @@ jobs:
       with:
         ghc-version: ${{ matrix.ghc }}
         cabal-version: ${{ matrix.cabal }}
-    - name: Install GHC with -fPIC on Linux
-      if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
-      run: |
-        ghcup rm ghc ${{ matrix.ghc }}
-        ghcup install ghc \
-          --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
-          ${{ matrix.ghc }}
-        cat /usr/local/.ghcup/logs/ghcup.log
-    - uses: actions/cache@v3
-      name: Cache ~/.cabal/store
-      with:
-        path: ~/.cabal/store
-        key: ${{ runner.os }}-${{ matrix.ghc }}-cabal
-    - name: Install system dependencies (Linux)
-      if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends libnuma-dev libgmp-dev
 
     - uses: conda-incubator/setup-miniconda@v2
       if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
@@ -56,6 +38,27 @@ jobs:
         mamba env create -f conda-ci-linux.yml
         mamba env list
 
+    - name: Install GHC with -fPIC on Linux
+      if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
+      run: |
+        source ~/.profile
+        conda activate ci_devel
+        ghcup rm ghc ${{ matrix.ghc }}
+        ghcup install ghc \
+          --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
+          ${{ matrix.ghc }}
+        cat /usr/local/.ghcup/logs/ghcup.log
+    - uses: actions/cache@v3
+      name: Cache ~/.cabal/store
+      with:
+        path: ~/.cabal/store
+        key: ${{ runner.os }}-${{ matrix.ghc }}-cabal
+    # - name: Install system dependencies (Linux)
+    #   if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
+    #   run: |
+    #     sudo apt-get update
+    #     sudo apt-get install -y --no-install-recommends libnuma-dev libgmp-dev
+
     - name: Build
       run: |
         make cabal.project.local
@@ -63,6 +66,8 @@ jobs:
 
     - name: Test
       run: |
+        source ~/.profile
+        conda activate ci_devel
         cabal run ising-ground-state
 
     - name: Package

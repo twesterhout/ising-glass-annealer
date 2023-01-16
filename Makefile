@@ -20,8 +20,8 @@ conda: haskell
 .PHONY: haskell
 haskell:
 	cabal build
-	find dist-newstyle -name "libising_glass_annealer.$(SHARED_EXT)" \
-	  -exec install -m644 -C {} python/ising_glass_annealer/ \;
+	find -D exec dist-newstyle -name "libising_glass_annealer.$(SHARED_EXT)" \
+	   -exec install -m644 -C {} python/ising_glass_annealer/ \;
 ifeq ($(UNAME), Linux)
 	patchelf --set-rpath '$$ORIGIN' python/ising_glass_annealer/libising_glass_annealer.$(SHARED_EXT)
 endif
