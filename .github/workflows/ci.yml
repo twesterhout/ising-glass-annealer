@@ -33,7 +33,7 @@ jobs:
       if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
       run: |
         ghcup rm ghc ${{ matrix.ghc }}
-        rm -r ~/.cabal/store
+        rm -rf ~/.cabal/store
         ghcup install ghc \
           --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
           ${{ matrix.ghc }}
