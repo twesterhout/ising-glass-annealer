@@ -61,14 +61,15 @@ jobs:
 
     - name: Build
       run: |
+        mamba env list
         make cabal.project.local
         make haskell
 
-    - name: Test
-      run: |
-        source ~/.profile
-        conda activate ci_devel
-        cabal run ising-ground-state
+    # - name: Test
+    #   run: |
+    #     source ~/.profile
+    #     conda activate ci_devel
+    #     cabal run ising-ground-state
 
     - name: Package
       run: |

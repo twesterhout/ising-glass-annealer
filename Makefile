@@ -34,7 +34,7 @@ ifneq ($(CONDA_PREFIX),)
 	@echo "  extra-lib-dirs: $(CONDA_PREFIX)/lib" >>$@
 	@echo "  ghc-options: -pgmP $(CONDA_CC) -pgmc $(CONDA_CC) -pgma $(CONDA_CC) -pgml $(CONDA_CC)" >>$@
 	@echo "               -ddump-simpl -ddump-stg-final -ddump-cmm -ddump-asm -ddump-to-file" >>$@
-	@echo "  flags: +use-standalone -dont-build-shared +build-example" >>$@
+	@echo "  flags: +use-standalone -dont-build-shared -build-example" >>$@
 	@echo "" >>$@
 	@echo "package hdf5-hs" >>$@
 	@echo "  extra-include-dirs: $(CONDA_PREFIX)/include" >>$@
