@@ -27,8 +27,8 @@ jobs:
       run: |
         ghcup install ghc \
           --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
-          --force \
           ${{ matrix.ghc }}
+        cat /usr/local/.ghcup/logs/ghcup.log
     - uses: actions/cache@v3
       name: Cache ~/.cabal/store
       with:
