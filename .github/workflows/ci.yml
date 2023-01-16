@@ -9,7 +9,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-18.04
             cabal: latest
             ghc: "9.2.5"
           # - os: macos-latest
@@ -65,32 +65,32 @@ jobs:
       run: |
         cabal run ising-ground-state
 
-    - name: Package
-      run: |
-        source ~/.profile
-        conda activate ci_devel
-        mkdir $GITHUB_WORKSPACE/conda_output
-        mamba build -c conda-forge --output-folder=$GITHUB_WORKSPACE/conda_output python/conda/
-    
-    - uses: actions/upload-artifact@v3
-      with:
-        name: conda-packages-linux
-        path: conda_output/*
+    # - name: Package
+    #   run: |
+    #     source ~/.profile
+    #     conda activate ci_devel
+    #     mkdir $GITHUB_WORKSPACE/conda_output
+    #     mamba build -c conda-forge --output-folder=$GITHUB_WORKSPACE/conda_output python/conda/
+    # 
+    # - uses: actions/upload-artifact@v3
+    #   with:
+    #     name: conda-packages-linux
+    #     path: conda_output/*
 
-  release:
-    name: Creating a release
-    needs: [build]
-    runs-on: ubuntu-20.04
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v2
-      - name: Inspect directory after downloading artifacts
-        run: |
-          ls -alFR
-      - name: Create release and upload artifacts
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          wget -q https://github.com/TheAssassin/pyuploadtool/releases/download/continuous/pyuploadtool-x86_64.AppImage
-          chmod +x pyuploadtool-x86_64.AppImage
-          ./pyuploadtool-x86_64.AppImage conda_output
+  # release:
+  #   name: Creating a release
+  #   needs: [build]
+  #   runs-on: ubuntu-20.04
+  #   steps:
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v2
+  #     - name: Inspect directory after downloading artifacts
+  #       run: |
+  #         ls -alFR
+  #     - name: Create release and upload artifacts
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         wget -q https://github.com/TheAssassin/pyuploadtool/releases/download/continuous/pyuploadtool-x86_64.AppImage
+  #         chmod +x pyuploadtool-x86_64.AppImage
+  #         ./pyuploadtool-x86_64.AppImage conda_output
