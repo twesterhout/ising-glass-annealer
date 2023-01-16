@@ -67,8 +67,9 @@ jobs:
         conda activate ci_devel
         echo $LD
         echo $CC
-        make cabal.project.local
-        make haskell
+        make CONDA_CC=$CC CONDA_PREFIX=$CONDA_PREFIX cabal.project.local
+        cat cabal.project.local
+        make CONDA_CC=$CC CONDA_PREFIX=$CONDA_PREFIX haskell
 
     # - name: Test
     #   run: |
