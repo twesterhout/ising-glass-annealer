@@ -68,8 +68,11 @@ jobs:
     - name: Build
       shell: bash -el {0}
       run: |
-        CONDA_CC=$(conda run -n test bash -c "which \${CC}")
-        CONDA_PREFIX=$(conda run -n test bash -c "which \${CONDA_PREFIX}")
+        CONDA_CC=$(conda run -n test bash -c 'which ${CC}')
+        CONDA_PREFIX=$(conda run -n test bash -c 'echo ${CONDA_PREFIX}')
+        echo $(conda run -n test bash -c 'which ${CONDA_CC}')
+        echo "CONDA_CC=$CONDA_CC"
+        echo "CONDA_PREFIX=$CONDA_PREFIX"
         
         make CONDA_CC=$CONDA_CC CONDA_PREFIX=$CONDA_PREFIX cabal.project.local
         cat cabal.project.local
