@@ -24,3 +24,5 @@ cabal.project.local~
 __pycache__/
 prefix/
 build/
+*.egg-info/
+*.so
