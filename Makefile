@@ -41,8 +41,15 @@ ifneq ($(CONDA_PREFIX),)
 	@echo "  extra-lib-dirs: $(CONDA_PREFIX)/lib" >>$@
 	@echo "  flags: +disable-default-paths" >>$@
 else
-	@echo "No Conda found, leaving cabal.project.local untouched ..."
-	@touch cabal.project.local
+	@echo "Creating cabal.project.local ..."
+	@echo "-- DO NOT MODIFY (Generated automatically by Makefile)" >$@
+	@echo "package ising-glass-annealer" >>$@
+	@echo "  ghc-options: -ddump-simpl -ddump-stg-final -ddump-cmm -ddump-asm -ddump-to-file" >>$@
+	@echo "  flags: +use-standalone -dont-build-shared -build-example" >>$@
+	@echo "" >>$@
+	@echo "package hdf5-hs" >>$@
+	@echo "  extra-include-dirs: $(CONDA_PREFIX)/include" >>$@
+	@echo "  extra-lib-dirs: $(CONDA_PREFIX)/lib" >>$@
 endif
 
 .PHONY: clean
