@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "0.4.0.0"
+__version__ = "0.4.0.1"
 __author__ = "Tom Westerhout <14264576+twesterhout@users.noreply.github.com>"
 
 import os
@@ -165,7 +165,7 @@ def anneal(
     repetitions: int = 1,
     only_best: bool = True,
 ):
-    tick = time.time()
+    # tick = time.time()
     if not isinstance(hamiltonian, Hamiltonian):
         raise TypeError("'hamiltonian' must be a Hamiltonian, but got {}".format(type(hamiltonian)))
     number_sweeps = int(number_sweeps)
@@ -242,14 +242,18 @@ def anneal(
         ffi.from_buffer("uint64_t *", configurations, require_writable=True),
         ffi.from_buffer("double *", energies, require_writable=True),
     )
-    tock = time.time()
+    # tock = time.time()
 
     if max_coupling is not None:
         energies *= max_coupling
 
     for (x, e) in zip(configurations, energies):
-        print(x, hamiltonian.energy(x), e)
-        assert np.isclose(hamiltonian.energy(x), e, rtol=1e-10, atol=1e-12)
+        # print(x, hamiltonian.energy(x), e)
+        if not np.isclose(hamiltonian.energy(x), e, rtol=1e-10, atol=1e-12):
+            raise ValueError(
+                "bug in ising_glass_annealer.sa_anneal_f64: e={}, but hamiltonian.energy(x)={}"
+                "".format(e, hamiltonian.energy(x))
+            )
     if only_best:
         index = np.argmin(energies)
         # logger.debug(

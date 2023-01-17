@@ -8,7 +8,7 @@ source:
   path: ../
 
 build:
-  number: 5
+  number: 0
 
 test:
   imports:
