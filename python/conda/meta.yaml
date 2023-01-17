@@ -18,7 +18,7 @@ requirements:
   build:
     - {{ compiler('c') }}
     - gmp
-    - libffi=3.2*
+    - libffi
     # - numactl-devel-cos7-x86_64 # [linux]
 
   host:
@@ -35,6 +35,6 @@ requirements:
     - scipy
     # Runtime libraries needed the Haskell code
     - gmp
-    - libffi=3.2*
+    - libffi
       # - numactl-libs-cos7-x86_64 # [linux]
     - sysroot_linux-64 # [linux]
