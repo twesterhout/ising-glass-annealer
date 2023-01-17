@@ -47,6 +47,7 @@ jobs:
       run: |
         make cabal.project.local
         make haskell
+        ldd -V python/ising_glass_annealer/libising_glass_annealer.so
 
     - uses: conda-incubator/setup-miniconda@v2
       with:
