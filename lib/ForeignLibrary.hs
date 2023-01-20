@@ -94,17 +94,10 @@ sa_compute_energy_f64 ::
   Ptr Word64 ->
   IO Double
 sa_compute_energy_f64 c_n elts colIdxs rowIdxs field x = do
-  -- setNumCapabilities =<< getNumProcessors
-  -- putStrLn "Running sa_anneal ..."
-  -- print =<< getNumCapabilities
-  -- unless (repetitions >= 1) $
-  --   error $
-  --     "invalid number of repetitions: " <> show repetitions
-  -- hamiltonian <- deRefStablePtr hamiltonianPtr
   let n = fromIntegral c_n
       matrix = CSR' n elts colIdxs rowIdxs
       hamiltonian = Hamiltonian' matrix field
-      e = computeEnergy' hamiltonian (Bits' x)
+  e <- computeEnergyM hamiltonian (Bits' x)
   e `deepseq` pure e
 
 foreign export ccall "sa_compute_energy_f64"
@@ -128,3 +121,22 @@ sa_estimate_betas_f64 c_n elts colIdxs rowIdxs field minBeta maxBeta = do
 
 foreign export ccall "sa_estimate_betas_f64"
   sa_estimate_betas_f64 :: Int32 -> Ptr Double -> Ptr Int32 -> Ptr Int32 -> Ptr Double -> Ptr Double -> Ptr Double -> IO ()
+
+sa_greedy_solve_f64 ::
+  -- Hamiltonian
+  Int32 ->
+  Ptr Double ->
+  Ptr Int32 ->
+  Ptr Int32 ->
+  Ptr Double ->
+  -- Configuration
+  Ptr Word64 ->
+  IO Double
+sa_greedy_solve_f64 c_n elts colIdxs rowIdxs field bitsPtr = do
+  let n = fromIntegral c_n
+      matrix = CSR' n elts colIdxs rowIdxs
+      hamiltonian = Hamiltonian' matrix field
+  greedySolve hamiltonian (Bits' bitsPtr)
+
+foreign export ccall "sa_greedy_solve_f64"
+  sa_greedy_solve_f64 :: Int32 -> Ptr Double -> Ptr Int32 -> Ptr Int32 -> Ptr Double -> Ptr Word64 -> IO Double

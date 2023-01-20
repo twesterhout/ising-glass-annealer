@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "0.4.0.1"
+__version__ = "0.4.1.0"
 __author__ = "Tom Westerhout <14264576+twesterhout@users.noreply.github.com>"
 
 import os
@@ -84,6 +84,10 @@ def load_shared_library():
                                    double const *, int32_t const *, int32_t const *,
                                    double const *,
                                    double *, double *);
+        double sa_greedy_solve_f64(int32_t,
+                                   double const *, int32_t const *, int32_t const *,
+                                   double const *,
+                                   uint64_t *);
     """
     )
     return ffi.dlopen(os.path.join(get_package_path(), get_library_name()))
@@ -101,6 +105,8 @@ class Hamiltonian:
     def __init__(self, exchange: scipy.sparse.spmatrix, field: NDArray[np.float64]):
         self.exchange = exchange.tocsr()
         self.field = np.asarray(field, dtype=np.float64)
+        if (self.exchange != self.exchange.transpose()).nnz != 0:
+            raise ValueError("'exchange' is not symmetric")
 
     @property
     def size(self) -> int:
@@ -250,6 +256,7 @@ def anneal(
     for (x, e) in zip(configurations, energies):
         # print(x, hamiltonian.energy(x), e)
         if not np.isclose(hamiltonian.energy(x), e, rtol=1e-10, atol=1e-12):
+
             raise ValueError(
                 "bug in ising_glass_annealer.sa_anneal_f64: e={}, but hamiltonian.energy(x)={}"
                 "".format(e, hamiltonian.energy(x))
@@ -266,3 +273,31 @@ def anneal(
 
     # logger.debug("Completed annealing in {:.1f} seconds.", tock - tick)
     return configurations, energies
+
+
+def greedy_solve(hamiltonian: Hamiltonian):
+    # tick = time.time()
+    if not isinstance(hamiltonian, Hamiltonian):
+        raise TypeError("'hamiltonian' must be a Hamiltonian, but got {}".format(type(hamiltonian)))
+
+    n_bits = hamiltonian.size
+    n_words = (n_bits + 63) // 64
+
+    exchange = hamiltonian.exchange
+    if not isinstance(exchange, scipy.sparse.csr_matrix):
+        exchange = exchange.tocsr()
+
+    elts = np.asarray(exchange.data, dtype=np.float64)
+    cols = np.asarray(exchange.indices, dtype=np.int32)
+    rows = np.asarray(exchange.indptr, dtype=np.int32)
+    field = np.asarray(hamiltonian.field, dtype=np.float64)
+    x = np.zeros(n_words, dtype=np.uint64)
+    e = _lib.sa_greedy_solve_f64(
+        n_bits,
+        ffi.from_buffer("double const[]", elts, require_writable=False),
+        ffi.from_buffer("int32_t const[]", cols, require_writable=False),
+        ffi.from_buffer("int32_t const[]", rows, require_writable=False),
+        ffi.from_buffer("double const[]", field, require_writable=False),
+        ffi.from_buffer("uint64_t *", x, require_writable=True),
+    )
+    return x, e

@@ -76,5 +76,25 @@ def test_kagome16(hdf5_file: str = "../test/sa_test_kagome_16.h5", repetitions: 
         assert accuracy > 0.99
 
 
+def test_greedy_kagome16(hdf5_file: str = "../test/sa_test_kagome_16.h5", repetitions: int = 4):
+    with h5py.File(hdf5_file, "r") as f:
+        data = np.asarray(f["elements"])
+        indices = np.asarray(f["indices"])
+        indptr = np.asarray(f["indptr"])
+        field = np.asarray(f["field"])
+        energy = np.asarray(f["energy"]).item()
+        exact = np.asarray(f["signs"])
+        hamiltonian = sa.Hamiltonian(scipy.sparse.csr_matrix((data, indices, indptr)), field)
+        (x, e) = sa.greedy_solve(hamiltonian)
+        predicted_signs = sa.bits_to_signs(x, count=hamiltonian.size)
+        expected_signs = sa.bits_to_signs(exact, count=hamiltonian.size)
+        accuracy = np.mean(predicted_signs == expected_signs)
+
+        if accuracy < 0.5:
+            accuracy = 1 - accuracy
+        assert accuracy > 0.99
+        assert e == approx(energy, rel=1e-8)
+
+
 if __name__ == "__main__":
     example(repetitions=4)
