@@ -47,6 +47,9 @@ jobs:
 
     - name: Build
       run: |
+        sudo docker pull twesterhout/ising-glass-annealer
+        sudo docker images
+
         make centos_compile
         ldd bundle/lib/libising_glass_annealer.so
     # - name: Build
