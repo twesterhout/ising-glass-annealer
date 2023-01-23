@@ -37,7 +37,7 @@ centos_compile:
 		-v $$PWD:/work/ising-glass-annealer \
 		--user $$(id -u):$$(id -g) \
 		twesterhout/ising-glass-annealer \
-		bash -c 'cabal build && rm -r bundle && make bundle'
+		bash -c 'cabal build && rm -rf bundle && make bundle'
 
 
 bundle:
