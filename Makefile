@@ -37,7 +37,7 @@ centos_compile:
 		-v $$PWD:/work/ising-glass-annealer \
 		--user $$(id -u):$$(id -g) \
 		twesterhout/ising-glass-annealer \
-		bash -c 'cabal build && rm -rf bundle && make bundle'
+		bash -c 'cabal build --flags="-dont-build-shared" && rm -rf bundle && make bundle'
 
 
 bundle:
@@ -49,7 +49,7 @@ bundle:
 		sed -e '/^[\^t]/d' | \
 		sed -e 's/\t//' | \
 		sed -e 's/ (0.*)//' | \
-		grep libHS | \
+		grep -E '(libHS|libffi)' | \
 		sed -e 's/.* => //' | \
 		xargs -I '{}' install -m 644 '{}' bundle/lib/haskell/
 	find bundle/lib/haskell -type f -exec patchelf --set-rpath '$$ORIGIN' {} \;
