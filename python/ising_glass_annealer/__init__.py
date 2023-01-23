@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "0.4.1.1"
+__version__ = "0.4.1.2"
 __author__ = "Tom Westerhout <14264576+twesterhout@users.noreply.github.com>"
 
 import os
@@ -276,7 +276,7 @@ def anneal(
 
 
 def greedy_solve(hamiltonian: Hamiltonian):
-    tick = time.time()
+    # tick = time.time()
     if not isinstance(hamiltonian, Hamiltonian):
         raise TypeError("'hamiltonian' must be a Hamiltonian, but got {}".format(type(hamiltonian)))
 
@@ -300,6 +300,6 @@ def greedy_solve(hamiltonian: Hamiltonian):
         ffi.from_buffer("double const[]", field, require_writable=False),
         ffi.from_buffer("uint64_t *", x, require_writable=True),
     )
-    tock = time.time()
-    print("Took {:.2f} seconds".format(tock - tick))
+    # tock = time.time()
+    # print("Took {:.2f} seconds".format(tock - tick))
     return x, e
