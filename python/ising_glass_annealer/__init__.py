@@ -51,7 +51,7 @@ def get_library_name() -> str:
         extension = ".dylib"
     else:
         raise ImportError("Unsupported platform: {}".format(sys.platform))
-    return "libising_glass_annealer{}".format(extension)
+    return os.path.join("lib", "libising_glass_annealer{}".format(extension))
 
 
 def get_package_path() -> str:
@@ -276,7 +276,7 @@ def anneal(
 
 
 def greedy_solve(hamiltonian: Hamiltonian):
-    # tick = time.time()
+    tick = time.time()
     if not isinstance(hamiltonian, Hamiltonian):
         raise TypeError("'hamiltonian' must be a Hamiltonian, but got {}".format(type(hamiltonian)))
 
@@ -300,4 +300,6 @@ def greedy_solve(hamiltonian: Hamiltonian):
         ffi.from_buffer("double const[]", field, require_writable=False),
         ffi.from_buffer("uint64_t *", x, require_writable=True),
     )
+    tock = time.time()
+    print("Took {:.2f} seconds".format(tock - tick))
     return x, e

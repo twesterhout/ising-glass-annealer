@@ -66,7 +66,7 @@ library
   -- c-sources:           cbits/helpers.c
   -- cc-options:          -O3 -DNDEBUG -ffast-math
   build-depends:       vector
-                     -- , vector-algorithms
+                     , vector-algorithms
                      , deepseq
                      , primitive
                      , ghc-prim
@@ -101,18 +101,18 @@ foreign-library ising_glass_annealer
                      , primitive
                      , deepseq
 
-executable ising-ground-state
-  import:              common-options
-  if !flag(build-example)
-    buildable:         False
-  hs-source-dirs:      app
-  main-is:             Main.hs
-  build-depends:       ising-glass-annealer
-                     , vector
-                     , hdf5-hs
-  ghc-options:         -threaded
-                       -rtsopts
-                       -with-rtsopts=-N
+-- executable ising-ground-state
+--   import:              common-options
+--   if !flag(build-example)
+--     buildable:         False
+--   hs-source-dirs:      app
+--   main-is:             Main.hs
+--   build-depends:       ising-glass-annealer
+--                      , vector
+--                      , hdf5-hs
+--   ghc-options:         -threaded
+--                        -rtsopts
+--                        -with-rtsopts=-N
 
 -- test-suite ising-ground-state-test
 --   import:              common-options

@@ -550,7 +550,7 @@ processCoupling state@(GreedySolveState _ _ clusters _) !s1 !s2 !c
   | otherwise = pure ()
 
 greedySolve ::
-  (Storable i, Prim i, Integral i, Prim a, RealFloat a, Show a) =>
+  (Storable i, Prim i, Integral i, Storable a, Prim a, RealFloat a, Show a) =>
   Hamiltonian' i a ->
   Bits' ->
   IO a
@@ -574,6 +574,7 @@ greedySolve h@(Hamiltonian' matrix@(CSR' n _ _ _) _) bits = do
             processCoupling state s1 s2 c
           numberClusters <- P.readOffPtr accPtr 0
           when (numberClusters /= 1) . error $ "numberClusters: " <> show numberClusters
+    _ <- optimizeLocally h bits
     computeEnergyM h bits
 
 largestFirstOrder ::

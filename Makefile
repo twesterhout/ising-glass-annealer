@@ -19,12 +19,41 @@ conda: haskell
 
 .PHONY: haskell
 haskell:
-	cabal build
+	cabal build -f+use-standalone
 	find -D exec dist-newstyle -name "libising_glass_annealer.$(SHARED_EXT)" \
 	   -exec install -m644 -C {} python/ising_glass_annealer/ \;
 ifeq ($(UNAME), Linux)
 	patchelf --set-rpath '$$ORIGIN' python/ising_glass_annealer/libising_glass_annealer.$(SHARED_EXT)
 endif
+
+GHC_VERSION := $(shell ghc --version | sed -e 's/[^0-9]*//')
+HASKELL_LIBRARY := $(shell find dist-newstyle/ -type f -name "libising_glass_annealer.$(SHARED_EXT)" | grep $(GHC_VERSION))
+
+
+.PHONY: centos_compile
+centos_compile:
+	sudo docker run \
+		--rm -it \
+		-v $$PWD:/work/ising-glass-annealer \
+		--user $$(id -u):$$(id -g) \
+		twesterhout/ising-glass-annealer \
+		bash -c 'cabal build && rm -r bundle && make bundle'
+
+
+bundle:
+	mkdir -p bundle/lib/haskell
+	install -m644 $(HASKELL_LIBRARY) bundle/lib/
+	patchelf --set-rpath '$$ORIGIN/haskell' bundle/lib/libising_glass_annealer.$(SHARED_EXT)
+	ldd $(HASKELL_LIBRARY) | \
+		grep $(SHARED_EXT) | \
+		sed -e '/^[\^t]/d' | \
+		sed -e 's/\t//' | \
+		sed -e 's/ (0.*)//' | \
+		grep libHS | \
+		sed -e 's/.* => //' | \
+		xargs -I '{}' install -m 644 '{}' bundle/lib/haskell/
+	find bundle/lib/haskell -type f -exec patchelf --set-rpath '$$ORIGIN' {} \;
+
 
 cabal.project.local:
 ifneq ($(CONDA_PREFIX),)

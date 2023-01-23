@@ -92,9 +92,5 @@ def test_greedy_kagome16(hdf5_file: str = "../test/sa_test_kagome_16.h5", repeti
 
         if accuracy < 0.5:
             accuracy = 1 - accuracy
-        assert accuracy > 0.99
-        assert e == approx(energy, rel=1e-8)
-
-
-if __name__ == "__main__":
-    example(repetitions=4)
+        assert accuracy == 1.0
+        assert e == approx(energy, rel=1e-14)

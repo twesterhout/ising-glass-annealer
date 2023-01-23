@@ -9,45 +9,51 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-18.04
-            cabal: latest
-            ghc: "9.2.5"
+          - os: ubuntu-latest
+          # - os: ubuntu-18.04
+          #   cabal: latest
+          #   ghc: "9.2.5"
           # - os: macos-latest
           #   cabal: latest
           #   ghc: "8.10.7"
     steps:
     - uses: actions/checkout@v2
-    - uses: haskell/actions/setup@v1
-      name: Setup Haskell
-      with:
-        ghc-version: ${{ matrix.ghc }}
-        cabal-version: ${{ matrix.cabal }}
+    # - uses: haskell/actions/setup@v1
+    #   name: Setup Haskell
+    #   with:
+    #     ghc-version: ${{ matrix.ghc }}
+    #     cabal-version: ${{ matrix.cabal }}
 
-    - name: Install system dependencies (Linux)
-      if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends libnuma-dev libgmp-dev
+    # - name: Install system dependencies (Linux)
+    #   if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
+    #   run: |
+    #     sudo apt-get update
+    #     sudo apt-get install -y --no-install-recommends libnuma-dev libgmp-dev
 
-    - name: Install GHC with -fPIC on Linux
-      if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
-      run: |
-        ghcup rm ghc ${{ matrix.ghc }}
-        rm -rf ~/.cabal/store
-        ghcup install ghc \
-          --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
-          ${{ matrix.ghc }}
-    - uses: actions/cache@v3
-      name: Cache ~/.cabal/store
-      with:
-        path: ~/.cabal/store
-        key: ${{ runner.os }}-${{ matrix.ghc }}-cabal
+    # - name: Install GHC with -fPIC on Linux
+    #   if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
+    #   run: |
+    #     ghcup rm ghc ${{ matrix.ghc }}
+    #     rm -rf ~/.cabal/store
+    #     ghcup install ghc \
+    #       --url https://github.com/twesterhout/ghc-fpic-bindist/releases/download/v0.0.3/ghc-${{ matrix.ghc }}-x86_64-linux-ubuntu-18.04.tar.xz \
+    #       ${{ matrix.ghc }}
+
+    # - uses: actions/cache@v3
+    #   name: Cache ~/.cabal/store
+    #   with:
+    #     path: ~/.cabal/store
+    #     key: ${{ runner.os }}-${{ matrix.ghc }}-cabal
 
     - name: Build
       run: |
-        make cabal.project.local
-        make haskell
-        ldd -v python/ising_glass_annealer/libising_glass_annealer.so
+        make centos_compile
+        ldd bundle/lib/libising_glass_annealer.so
+    # - name: Build
+    #   run: |
+    #     make cabal.project.local
+    #     make haskell
+    #     ldd -v python/ising_glass_annealer/libising_glass_annealer.so
 
     - uses: conda-incubator/setup-miniconda@v2
       with:
