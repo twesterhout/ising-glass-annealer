@@ -45,40 +45,45 @@ jobs:
     #     path: ~/.cabal/store
     #     key: ${{ runner.os }}-${{ matrix.ghc }}-cabal
 
-    - name: Build
+    - name: Build Haskell library
       run: |
         sudo docker pull twesterhout/ising-glass-annealer
-        sudo docker images
 
+        mkdir dist-newstyle
+        mkdir bundle
         make centos_compile
-        ldd bundle/lib/libising_glass_annealer.so
     # - name: Build
     #   run: |
     #     make cabal.project.local
     #     make haskell
     #     ldd -v python/ising_glass_annealer/libising_glass_annealer.so
 
-    - uses: conda-incubator/setup-miniconda@v2
-      with:
-        environment-file: conda-ci-linux.yml
-        auto-activate-base: false
-
     # - uses: conda-incubator/setup-miniconda@v2
-    #   if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
     #   with:
-    #     mamba-version: "*"
-    #     miniforge-version: latest
-    #     channels: conda-forge,defaults
-    #     channel-priority: true
+    #     environment-file: conda-ci-linux.yml
     #     auto-activate-base: false
 
-    - name: Check Conda environments
+    - uses: conda-incubator/setup-miniconda@v2
+      # if: matrix.os == 'ubuntu-18.04' || matrix.os == 'ubuntu-20.04' || matrix.os == 'ubuntu-latest'
+      with:
+        mamba-version: "*"
+        miniforge-version: latest
+        channels: conda-forge,defaults
+        channel-priority: true
+        auto-activate-base: false
+
+    - name: Install conda-build
       shell: bash -el {0}
       run: |
-        conda info
-        conda env list
-        echo "CONDA_CC=$CONDA_CC"
-        echo "CONDA_PREFIX=$CONDA_PREFIX"
+        mamba install conda-build conda-verify anaconda-client
+
+    # - name: Check Conda environments
+    #   shell: bash -el {0}
+    #   run: |
+    #     conda info
+    #     conda env list
+    #     echo "CONDA_CC=$CONDA_CC"
+    #     echo "CONDA_PREFIX=$CONDA_PREFIX"
 
     # - name: Test
     #   run: |
@@ -86,12 +91,11 @@ jobs:
     #     conda activate ci_devel
     #     cabal run ising-ground-state
 
-    - name: Package
+    - name: Build Conda package
       shell: bash -el {0}
       run: |
         mkdir $GITHUB_WORKSPACE/conda_output
-        conda activate test
-        conda build --output-folder=$GITHUB_WORKSPACE/conda_output python/conda/
+        conda build --output-folder=$GITHUB_WORKSPACE/conda_output python/conda
     
     - uses: actions/upload-artifact@v3
       with:

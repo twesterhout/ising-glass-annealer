@@ -26,6 +26,6 @@ setup(
         "numpy>=1.19.0",
         "scipy",
     ],
-    package_data={"ising_glass_annealer": ["lib/**"]},
+    package_data={"ising_glass_annealer": ["lib/*", "lib/haskell/*"]},
     zip_safe=False,
 )

@@ -57,7 +57,7 @@ def test_optimization():
             assert x == x_best
 
 
-def test_kagome16(hdf5_file: str = "../test/sa_test_kagome_16.h5", repetitions: int = 4):
+def test_kagome16(hdf5_file: str = "sa_test_kagome_16.h5", repetitions: int = 4):
     with h5py.File(hdf5_file, "r") as f:
         data = np.asarray(f["elements"])
         indices = np.asarray(f["indices"])
@@ -76,7 +76,7 @@ def test_kagome16(hdf5_file: str = "../test/sa_test_kagome_16.h5", repetitions: 
         assert accuracy > 0.99
 
 
-def test_greedy_kagome16(hdf5_file: str = "../test/sa_test_kagome_16.h5", repetitions: int = 4):
+def test_greedy_kagome16(hdf5_file: str = "sa_test_kagome_16.h5"):
     with h5py.File(hdf5_file, "r") as f:
         data = np.asarray(f["elements"])
         indices = np.asarray(f["indices"])

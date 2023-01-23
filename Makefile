@@ -13,9 +13,9 @@ else
 endif
 
 .PHONY: conda
-conda: haskell
-	# conda run -n ci_devel bash -c
-	conda build -c conda-forge python/conda
+conda:
+	cp -r bundle/lib python/ising_glass_annealer/
+	conda build python/conda
 
 .PHONY: haskell
 haskell:
@@ -32,14 +32,23 @@ HASKELL_LIBRARY := $(shell find dist-newstyle/ -type f -name "libising_glass_ann
 
 .PHONY: centos_compile
 centos_compile:
+	mkdir -p bundle
 	sudo docker run \
 		--rm \
-		-v $$PWD:/work/ising-glass-annealer \
-		--user $$(id -u):$$(id -g) \
+		-v $$PWD/src:/work/ising-glass-annealer/src:ro \
+		-v $$PWD/lib:/work/ising-glass-annealer/lib:ro \
+		-v $$PWD/cbits:/work/ising-glass-annealer/cbits:ro \
+		-v $$PWD/LICENSE:/work/ising-glass-annealer/LICENSE:ro \
+		-v $$PWD/cabal.project:/work/ising-glass-annealer/cabal.project:ro \
+		-v $$PWD/ising-glass-annealer.cabal:/work/ising-glass-annealer/ising-glass-annealer.cabal:ro \
+		-v $$PWD/Makefile:/work/ising-glass-annealer/Makefile:ro \
+		-v $$PWD/bundle:/work/ising-glass-annealer/bundle:z \
+		-v $$PWD/dist-newstyle:/work/ising-glass-annealer/dist-newstyle:z \
 		twesterhout/ising-glass-annealer \
-		bash -c 'cabal build --flags="-dont-build-shared" && rm -rf bundle && make bundle'
+		bash -c 'cabal build --flags="-dont-build-shared" && make bundle'
+	sudo chown -R $$USER bundle/lib
 
-
+.PHONY: bundle
 bundle:
 	mkdir -p bundle/lib/haskell
 	install -m644 $(HASKELL_LIBRARY) bundle/lib/

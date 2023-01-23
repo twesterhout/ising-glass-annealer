@@ -11,8 +11,14 @@ build:
   number: 0
 
 test:
-  imports:
-    - ising_glass_annealer
+  requires:
+    - h5py
+    - pytest
+  source_files:
+    - "*.h5"
+    - run_tests.py
+  commands:
+    - python -m pytest run_tests.py
 
 requirements:
   build:
