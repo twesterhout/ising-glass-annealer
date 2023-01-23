@@ -70,7 +70,6 @@ jobs:
         miniforge-version: latest
         channels: conda-forge,defaults
         channel-priority: true
-        auto-activate-base: false
 
     - name: Install conda-build
       shell: bash -el {0}
@@ -95,6 +94,7 @@ jobs:
       shell: bash -el {0}
       run: |
         mkdir $GITHUB_WORKSPACE/conda_output
+	      cp -r bundle/lib python/ising_glass_annealer/
         conda build --output-folder=$GITHUB_WORKSPACE/conda_output python/conda
     
     - uses: actions/upload-artifact@v3

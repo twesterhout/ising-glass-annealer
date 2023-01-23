@@ -570,7 +570,6 @@ greedySolve h@(Hamiltonian' matrix@(CSR' n _ _ _) _) bits = do
                 s1 = P.indexOffPtr rowIdxs k
                 s2 = P.indexOffPtr colIdxs k
                 c = P.indexOffPtr elts k
-            when (orderIdx < 10) $ print c
             processCoupling state s1 s2 c
           numberClusters <- P.readOffPtr accPtr 0
           when (numberClusters /= 1) . error $ "numberClusters: " <> show numberClusters
