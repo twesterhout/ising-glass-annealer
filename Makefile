@@ -33,7 +33,7 @@ HASKELL_LIBRARY := $(shell find dist-newstyle/ -type f -name "libising_glass_ann
 .PHONY: centos_compile
 centos_compile:
 	sudo docker run \
-		--rm -it \
+		--rm \
 		-v $$PWD:/work/ising-glass-annealer \
 		--user $$(id -u):$$(id -g) \
 		twesterhout/ising-glass-annealer \
