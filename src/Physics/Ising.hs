@@ -33,7 +33,6 @@ import Data.Primitive.Ptr (Ptr)
 import qualified Data.Primitive.Ptr as P
 import Data.Primitive.Types (Prim)
 import qualified Data.Vector.Algorithms.Intro as Intro
-import qualified Data.Vector.Generic.Mutable as P
 import qualified Data.Vector.Storable as S
 import qualified Data.Vector.Storable.Mutable as SM
 import Data.Word (Word32, Word64)
@@ -486,7 +485,7 @@ addToCluster ::
   Int ->
   i ->
   m ()
-addToCluster (GreedySolveState (Hamiltonian' matrix field) bits clusters _) !cluster !s = do
+addToCluster (GreedySolveState (Hamiltonian' matrix _) bits clusters _) !cluster !s = do
   cluster1 <- getCluster clusters s
   when (cluster1 /= -1) $ error "ouch 3"
 
@@ -550,7 +549,7 @@ processCoupling state@(GreedySolveState _ _ clusters _) !s1 !s2 !c
   | otherwise = pure ()
 
 greedySolve ::
-  (Storable i, Prim i, Integral i, Storable a, Prim a, RealFloat a, Show a) =>
+  (Storable i, Prim i, Integral i, Storable a, Prim a, RealFloat a) =>
   Hamiltonian' i a ->
   Bits' ->
   IO a

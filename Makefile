@@ -33,6 +33,7 @@ HASKELL_LIBRARY := $(shell find dist-newstyle/ -type f -name "libising_glass_ann
 .PHONY: centos_compile
 centos_compile:
 	mkdir -p bundle
+	mkdir -p dist-newstyle-docker
 	sudo docker run \
 		--rm \
 		-v $$PWD/src:/work/ising-glass-annealer/src:ro \
@@ -43,9 +44,9 @@ centos_compile:
 		-v $$PWD/ising-glass-annealer.cabal:/work/ising-glass-annealer/ising-glass-annealer.cabal:ro \
 		-v $$PWD/Makefile:/work/ising-glass-annealer/Makefile:ro \
 		-v $$PWD/bundle:/work/ising-glass-annealer/bundle:z \
-		-v $$PWD/dist-newstyle:/work/ising-glass-annealer/dist-newstyle:z \
+		-v $$PWD/dist-newstyle-docker:/work/ising-glass-annealer/dist-newstyle:z \
 		twesterhout/ising-glass-annealer \
-		bash -c 'cabal build --flags="-dont-build-shared" && make bundle'
+		bash -c 'cabal build && make bundle'
 	sudo chown -R $$USER bundle/lib
 
 .PHONY: bundle
