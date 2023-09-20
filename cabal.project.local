@@ -1,0 +1,6 @@
+package ising-glass-annealer
+  optimization: 2
+  -- profiling: true
+  flags: +no-standalone
+  -- +no-foreign-library
+  -- ghc-options: -fprof-auto

@@ -1,96 +1,91 @@
-cabal-version:         3.0
-name:                  ising-glass-annealer
-version:               0.4.1.2
-synopsis:              See README for more info
-description:           See README for more info
-license:               BSD-3-Clause
-license-file:          LICENSE
-author:                Tom Westerhout
-maintainer:            Tom Westerhout <14264576+twesterhout@users.noreply.github.com>
-copyright:             2021-2023 Tom Westerhout
-category:              Math
-build-type:            Simple
-extra-doc-files:       README.md
-tested-with:           GHC == 8.10.7
-                       GHC == 9.2.5
+cabal-version:   3.0
+name:            ising-glass-annealer
+version:         0.4.1.2
+synopsis:        See README for more info
+description:     See README for more info
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Tom Westerhout
+maintainer:
+  Tom Westerhout <14264576+twesterhout@users.noreply.github.com>
 
--- flag use-standalone
---   description: Use standalone option for foreign-library (requires GHC which was built with -fPIC support)
---   manual: True
---   default: False
+copyright:       2021-2023 Tom Westerhout
+category:        Math
+build-type:      Simple
+extra-doc-files: README.md
+tested-with:     GHC ==9.4.6 || ==9.6.2
 
-flag dont-build-shared
-  description: Build the shared library
-  manual: True
-  default: False
+flag no-standalone
+  description:
+    Don't use the standalone option for foreign-library (it requires GHC which was built with -fPIC support)
+
+  manual:      True
+  default:     False
+
+flag no-foreign-library
+  description: Don't build the foreign-library
+  manual:      True
+  default:     False
 
 common common-options
-  build-depends:       base >= 4.13.0.0
---                      , relude
+  build-depends:      base >=4.13.0.0
+  ghc-options:
+    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wredundant-constraints
+    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
+    -Wmissing-deriving-strategies
 
---   mixins:              base hiding (Prelude)
---                      , relude (Relude as Prelude)
-  ghc-options:         -Wall
-                       -Wcompat
-                       -Widentities
-                       -Wincomplete-uni-patterns
-                       -Wincomplete-record-updates
-                       -Wredundant-constraints
-                       -fhide-source-paths
-                       -Wmissing-export-lists
-                       -Wpartial-fields
-                       -Wmissing-deriving-strategies
-
-  default-language:    Haskell2010
-  default-extensions:  BangPatterns
-                       ScopedTypeVariables
-                       OverloadedStrings
-                       FlexibleContexts
-                       FlexibleInstances
-                       MultiParamTypeClasses
-                       TypeFamilies
-                       DerivingVia
-                       GeneralizedNewtypeDeriving
-                       TypeApplications
+  default-language:   GHC2021
+  default-extensions:
+    BangPatterns
+    DerivingVia
+    FlexibleContexts
+    FlexibleInstances
+    GeneralizedNewtypeDeriving
+    MultiParamTypeClasses
+    OverloadedStrings
+    ScopedTypeVariables
+    TypeApplications
+    TypeFamilies
 
 library
-  import:              common-options
-  hs-source-dirs:      src
-  exposed-modules:     Physics.Ising
-  -- c-sources:           cbits/helpers.c
-  -- cc-options:          -O3 -DNDEBUG -ffast-math
-  build-depends:       vector
-                     , vector-algorithms
-                     , deepseq
-                     , primitive
-                     , ghc-prim
-                     , strict-identity
-                     -- , mtl
-                     , random >= 1.2.0
-                     -- , mwc-random
-                     -- , text
-                     , unliftio
+  import:          common-options
+  hs-source-dirs:  src
+  exposed-modules: Physics.Ising
+  build-depends:
+    , deepseq
+    , ghc-prim
+    , primitive
+    , random             >=1.2.0
+    , strict-identity
+    , unliftio
+    , vector
+    , vector-algorithms
+
+  ghc-options:
+    -fPIC -fno-prof-auto -fno-full-laziness -fexpose-all-unfoldings
+    -fspecialise-aggressively
 
 foreign-library ising_glass_annealer
-  import:              common-options
-  if flag(dont-build-shared)
-    buildable:         False
-  type:                native-shared
-  if os(Windows) || os(darwin) || os(osx)
+  import:         common-options
+  type:           native-shared
+
+  if !flag(no-standalone)
     options: standalone
-  -- if os(linux) && flag(use-standalone)
-  --   options: standalone
+
+  if flag(no-foreign-library)
+    buildable: False
+
   -- For some reason libffi is not linked properly
-  if os(darwin) || os(osx)
-    extra-libraries:   ffi
-  -- if os(linux)
-  --   extra-libraries:   numa
-  hs-source-dirs:      lib
-  other-modules:       ForeignLibrary
-  c-sources:           cbits/init.c
-  cc-options:          -fPIC -Wall -Wextra
-  include-dirs:        cbits
-  ghc-options:         -Wno-missing-signatures -threaded
-  build-depends:       ising-glass-annealer
-                     , primitive
-                     , deepseq
+  -- if os(darwin) || os(osx)
+  --   extra-libraries:   ffi
+  hs-source-dirs: lib
+  other-modules:  ForeignLibrary
+  c-sources:      cbits/init.c
+  cc-options:     -fPIC -Wall -Wextra
+  include-dirs:   cbits
+  ghc-options:    -Wno-missing-signatures -threaded
+  build-depends:
+    , deepseq
+    , ising-glass-annealer
+    , primitive
