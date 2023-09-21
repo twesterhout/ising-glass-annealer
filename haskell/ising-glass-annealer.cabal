@@ -12,7 +12,6 @@ maintainer:
 copyright:       2021-2023 Tom Westerhout
 category:        Math
 build-type:      Simple
-extra-doc-files: README.md
 tested-with:     GHC ==9.4.6 || ==9.6.2
 
 flag no-standalone

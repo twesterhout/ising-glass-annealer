@@ -29,5 +29,6 @@ setup(
         "scipy>=1.8.0",
         "loguru",
     ],
+    test_requires=["pytest", "h5py"],
     zip_safe=False,
 )

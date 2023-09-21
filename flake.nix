@@ -16,19 +16,6 @@
     let
       inherit (inputs.nixpkgs) lib;
       version = "0.4.1.2";
-      # only consider source dirs and package.yaml as source to our Haskell package
-      # this allows the project to rebuild only when source files change, not e.g. readme
-      src = inputs.nix-filter.lib {
-        root = ./.;
-        include = [
-          "src"
-          "lib"
-          "cbits"
-          "ising-glass-annealer.cabal"
-          "LICENSE"
-          "README.md"
-        ];
-      };
 
       doEnableRelocatedStaticLibs = ghcVersion: (final: prev:
         # An overlay to replace ghc96 with a custom one that has
@@ -94,7 +81,7 @@
                       "cbits/ising_glass_annealer_declarations.h"
                     ];
                   }
-                  (hself.callCabal2nix "ising-glass-annealer" src { });
+                  (hself.callCabal2nix "ising-glass-annealer" ./haskell { });
             })
           ];
         };

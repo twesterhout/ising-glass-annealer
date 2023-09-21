@@ -14,6 +14,7 @@ final: prev: {
           buildInputs = [ haskell-package ];
           propagatedBuildInputs = with python-final; [
             cffi
+            h5py
             loguru
             numpy
             scipy
@@ -29,7 +30,7 @@ final: prev: {
 
           checkPhase = ''
             runHook preCheck
-            python3 -m pytest --color=yes --capture=no test/test_api.py
+            python3 -m pytest --color=yes --capture=no run_tests.py
             runHook postCheck
           '';
 
