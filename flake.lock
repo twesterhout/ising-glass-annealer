@@ -18,28 +18,33 @@
         "type": "github"
       }
     },
-    "nix-filter": {
+    "haskell-python-tools": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
       "locked": {
-        "lastModified": 1694857738,
-        "narHash": "sha256-bxxNyLHjhu0N8T3REINXQ2ZkJco0ABFPn6PIe2QUfqo=",
-        "owner": "numtide",
-        "repo": "nix-filter",
-        "rev": "41fd48e00c22b4ced525af521ead8792402de0ea",
+        "lastModified": 1695306564,
+        "narHash": "sha256-C/GbXuGhcWnk8yzWlrLQ0YyAbE5WUYEWiUS2W/a+API=",
+        "owner": "twesterhout",
+        "repo": "haskell-python-tools.nix",
+        "rev": "5a3ec39fb4f3d76d2df5ba48f7351300134ad660",
         "type": "github"
       },
       "original": {
-        "owner": "numtide",
-        "repo": "nix-filter",
+        "owner": "twesterhout",
+        "repo": "haskell-python-tools.nix",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1694959747,
-        "narHash": "sha256-CXQ2MuledDVlVM5dLC4pB41cFlBWxRw4tCBsFrq3cRk=",
+        "lastModified": 1695145219,
+        "narHash": "sha256-Eoe9IHbvmo5wEDeJXKFOpKUwxYJIOxKUesounVccNYk=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "970a59bd19eff3752ce552935687100c46e820a5",
+        "rev": "5ba549eafcf3e33405e5f66decd1a72356632b96",
         "type": "github"
       },
       "original": {
@@ -52,7 +57,7 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
-        "nix-filter": "nix-filter",
+        "haskell-python-tools": "haskell-python-tools",
         "nixpkgs": "nixpkgs"
       }
     },

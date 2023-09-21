@@ -9,64 +9,20 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    nix-filter.url = "github:numtide/nix-filter";
+    haskell-python-tools = {
+      url = "github:twesterhout/haskell-python-tools.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = inputs:
     let
       inherit (inputs.nixpkgs) lib;
+      inherit (inputs.haskell-python-tools.lib)
+        doInstallForeignLibs
+        doEnableRelocatedStaticLibs;
+
       version = "0.4.1.2";
-
-      doEnableRelocatedStaticLibs = ghcVersion: (final: prev:
-        # An overlay to replace ghc96 with a custom one that has
-        # the static RTS libraries compiled with -fPIC. This lets us use
-        # these static libraries to build a self-contained shared library.
-        let
-          ourGhc = prev.haskell.compiler.${ghcVersion}.override {
-            enableRelocatedStaticLibs = true;
-          };
-        in
-        lib.recursiveUpdate prev {
-          haskell.compiler.${ghcVersion} = ourGhc;
-          haskell.packages.${ghcVersion} =
-            prev.haskell.packages.${ghcVersion}.override
-              (old: {
-                overrides = prev.lib.composeExtensions
-                  (old.overrides or (_: _: { }))
-                  (hfinal: hprev: {
-                    mkDerivation = args: (hprev.mkDerivation args).overrideAttrs (attrs: {
-                      configureFlags = (attrs.configureFlags or [ ]) ++ [
-                        "--ghc-option=-fPIC"
-                        "--ghc-option=-fexternal-dynamic-refs"
-                      ];
-                    });
-                  });
-              })
-            // { ghc = ourGhc; };
-        });
-
-      doInstallForeignLibs = { headers ? [ ] }: drv: drv.overrideAttrs (attrs: {
-        # Add lib to the outputs
-        outputs =
-          let prev = attrs.outputs or [ ];
-          in
-          if lib.elem "lib" prev then prev else prev ++ [ "lib" ];
-        postInstall = ''
-          ${attrs.postInstall or ""}
-
-          echo "Installing foreign libraries to $lib/lib ..."
-          mkdir -p $lib/lib
-          for f in $(find $out/lib/ghc-*/lib -maxdepth 1 -type f -regex '.*\.\(so\|dylib\)'); do
-            install -v -Dm 755 "$f" $lib/lib/
-          done
-
-          echo "Installing include files to $lib/include ..."
-          mkdir -p $out/include
-          for f in ${lib.concatStringsSep " " headers}; do
-            install -v -Dm 644 "$f" $out/include/
-          done
-        '';
-      });
 
       haskell-overlay = self: super: {
         haskell = super.haskell // {
