@@ -26,3 +26,6 @@ prefix/
 build/
 *.egg-info/
 *.so
+result
+result-*
+python/ising_glass_annealer/*.h
