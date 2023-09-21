@@ -21,11 +21,13 @@ setup(
     author_email="14264576+twesterhout@users.noreply.github.com",
     license="BSD3",
     packages=["ising_glass_annealer"],
+    setup_requires=["cffi>=1.15.0"],
+    cffi_modules=["ising_glass_annealer/build_extension.py:ffibuilder"],
     install_requires=[
         "cffi>=1.15.0",
-        "numpy>=1.19.0",
-        "scipy",
+        "numpy>=1.23.0",
+        "scipy>=1.8.0",
+        "loguru",
     ],
-    package_data={"ising_glass_annealer": ["lib/*", "lib/haskell/*"]},
     zip_safe=False,
 )

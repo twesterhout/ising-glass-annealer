@@ -38,64 +38,23 @@ from typing import Any, Optional
 import cffi
 import numpy as np
 import scipy.sparse
+from loguru import logger
 from numpy.typing import NDArray
 
-# Enable import warnings
-# warnings.filterwarnings("default", category=ImportWarning)
+from ising_glass_annealer._ising_glass_annealer_hs import ffi, lib
 
 
-def get_library_name() -> str:
-    if sys.platform == "linux":
-        extension = ".so"
-    elif sys.platform == "darwin":
-        extension = ".dylib"
-    else:
-        raise ImportError("Unsupported platform: {}".format(sys.platform))
-    return os.path.join("lib", "libising_glass_annealer{}".format(extension))
+class _RuntimeInitializer:
+    def __init__(self):
+        logger.trace("Initializing Haskell runtime...")
+        lib.sa_init()
+
+    def __del__(self):
+        logger.trace("Deinitializing Haskell runtime...")
+        lib.sa_exit()
 
 
-def get_package_path() -> str:
-    """Get current package installation path."""
-    return os.path.dirname(os.path.realpath(__file__))
-
-
-ffi = cffi.FFI()
-
-
-def load_shared_library():
-    ffi.cdef(
-        """
-        void sa_init(void);
-        void sa_exit(void);
-        void sa_anneal_f64(int32_t,
-                           double const *, int32_t const *, int32_t const *,
-                           double const *,
-                           uint32_t,
-                           int32_t,
-                           int32_t,
-                           float, float,
-                           uint64_t *,
-                           double *);
-        double sa_compute_energy_f64(int32_t,
-                                     double const *, int32_t const *, int32_t const *,
-                                     double const *,
-                                     uint64_t const *);
-        void sa_estimate_betas_f64(int32_t,
-                                   double const *, int32_t const *, int32_t const *,
-                                   double const *,
-                                   double *, double *);
-        double sa_greedy_solve_f64(int32_t,
-                                   double const *, int32_t const *, int32_t const *,
-                                   double const *,
-                                   uint64_t *);
-    """
-    )
-    return ffi.dlopen(os.path.join(get_package_path(), get_library_name()))
-
-
-_lib = load_shared_library()
-_lib.sa_init()
-_finalizer = weakref.finalize(_lib, _lib.sa_exit)
+_runtime_init = _RuntimeInitializer()
 
 
 class Hamiltonian:
@@ -126,7 +85,7 @@ class Hamiltonian:
         cols = np.asarray(self.exchange.indices, dtype=np.int32)
         rows = np.asarray(self.exchange.indptr, dtype=np.int32)
         field = np.asarray(self.field, dtype=np.float64)
-        e = _lib.sa_compute_energy_f64(
+        e = lib.sa_compute_energy_f64(
             n_bits,
             ffi.from_buffer("double const[]", elts, require_writable=False),
             ffi.from_buffer("int32_t const[]", cols, require_writable=False),
@@ -214,7 +173,7 @@ def anneal(
     if beta0 is None or beta1 is None:
         c_beta0 = ffi.new("double *")
         c_beta1 = ffi.new("double *")
-        _lib.sa_estimate_betas_f64(
+        lib.sa_estimate_betas_f64(
             n_bits,
             ffi.from_buffer("double const[]", elts, require_writable=False),
             ffi.from_buffer("int32_t const[]", cols, require_writable=False),
@@ -234,7 +193,7 @@ def anneal(
     )
     energies = np.zeros(repetitions, dtype=np.float64)
 
-    _lib.sa_anneal_f64(
+    lib.sa_anneal_f64(
         n_bits,
         ffi.from_buffer("double const[]", elts, require_writable=False),
         ffi.from_buffer("int32_t const[]", cols, require_writable=False),
@@ -253,10 +212,9 @@ def anneal(
     if max_coupling is not None:
         energies *= max_coupling
 
-    for (x, e) in zip(configurations, energies):
+    for x, e in zip(configurations, energies):
         # print(x, hamiltonian.energy(x), e)
         if not np.isclose(hamiltonian.energy(x), e, rtol=1e-10, atol=1e-12):
-
             raise ValueError(
                 "bug in ising_glass_annealer.sa_anneal_f64: e={}, but hamiltonian.energy(x)={}"
                 "".format(e, hamiltonian.energy(x))
@@ -292,7 +250,7 @@ def greedy_solve(hamiltonian: Hamiltonian):
     rows = np.asarray(exchange.indptr, dtype=np.int32)
     field = np.asarray(hamiltonian.field, dtype=np.float64)
     x = np.zeros(n_words, dtype=np.uint64)
-    e = _lib.sa_greedy_solve_f64(
+    e = lib.sa_greedy_solve_f64(
         n_bits,
         ffi.from_buffer("double const[]", elts, require_writable=False),
         ffi.from_buffer("int32_t const[]", cols, require_writable=False),

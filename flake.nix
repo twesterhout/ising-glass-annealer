@@ -15,6 +15,7 @@
   outputs = inputs:
     let
       inherit (inputs.nixpkgs) lib;
+      version = "0.4.1.2";
       # only consider source dirs and package.yaml as source to our Haskell package
       # this allows the project to rebuild only when source files change, not e.g. readme
       src = inputs.nix-filter.lib {
@@ -80,27 +81,31 @@
         '';
       });
 
-      ising-glass-annealer-overlay = self: super: {
+      haskell-overlay = self: super: {
         haskell = super.haskell // {
           packageOverrides = lib.composeManyExtensions [
             super.haskell.packageOverrides
             (hself: hsuper: {
               ising-glass-annealer =
                 doInstallForeignLibs
-                  { headers = [ ./cbits/ising_glass_annealer.h ]; }
+                  {
+                    headers = [
+                      "cbits/ising_glass_annealer.h"
+                      "cbits/ising_glass_annealer_declarations.h"
+                    ];
+                  }
                   (hself.callCabal2nix "ising-glass-annealer" src { });
             })
-            # (hself: hsuper: {
-            #   mkDerivation = builtins.trace "enabling profiling" (args: hsuper.mkDerivation (args // { enableLibraryProfiling = true; }));
-            # })
           ];
         };
       };
+      python-overlay = import ./python/overlay.nix { inherit version; };
 
       composed-overlay = { enableProfiling ? false }:
         lib.composeManyExtensions [
           (doEnableRelocatedStaticLibs "ghc962")
-          ising-glass-annealer-overlay
+          haskell-overlay
+          python-overlay
         ];
 
       pkgs-for = args: system: import inputs.nixpkgs {
@@ -117,6 +122,7 @@
           inherit haskell;
           default = haskell.packages.ghc962.ising-glass-annealer;
           lib = haskell.packages.ghc962.ising-glass-annealer.lib;
+          python = python3Packages.ising-glass-annealer;
         });
 
       devShells = inputs.flake-utils.lib.eachDefaultSystemMap (system:
@@ -137,6 +143,15 @@
         {
           default = dev-shell-for (pkgs-for { } system);
           profiling = dev-shell-for (pkgs-for { enableProfiling = true; } system);
+          python = with (pkgs-for { } system); python3Packages.ising-glass-annealer.overrideAttrs (attrs: {
+            propagatedBuildInputs = (attrs.propagatedBuildInputs or [ ]) ++ [
+              python3Packages.h5py
+            ];
+            nativeBuildInputs = (attrs.nativeBuildInputs or [ ]) ++ [
+              python3Packages.black
+              nodePackages.pyright
+            ];
+          });
         });
     };
 }
