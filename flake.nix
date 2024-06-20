@@ -47,6 +47,9 @@
       composed-overlay = { enableProfiling ? false }:
         lib.composeManyExtensions [
           (doEnableRelocatedStaticLibs "ghc962")
+          (doEnableRelocatedStaticLibs "ghc963")
+          (doEnableRelocatedStaticLibs "ghc964")
+          (doEnableRelocatedStaticLibs "ghc965")
           haskell-overlay
           python-overlay
         ];
@@ -63,8 +66,8 @@
       packages = inputs.flake-utils.lib.eachDefaultSystemMap (system:
         with (pkgs-for { } system); {
           inherit haskell;
-          default = haskell.packages.ghc962.ising-glass-annealer;
-          lib = haskell.packages.ghc962.ising-glass-annealer.lib;
+          default = haskell.packages.ghc96.ising-glass-annealer;
+          lib = haskell.packages.ghc96.ising-glass-annealer.lib;
           python = python3Packages.ising-glass-annealer;
         });
 
