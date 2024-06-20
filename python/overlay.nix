@@ -3,7 +3,7 @@
 
 final: prev: {
   pythonPackagesExtensions =
-    let haskell-package = prev.haskell.packages.ghc96.ising-glass-annealer;
+    let haskell-package = prev.haskell.packages.ghc96.ising-glass-annealer.lib;
     in prev.pythonPackagesExtensions ++ [
       (python-final: python-prev: {
         ising-glass-annealer = python-final.buildPythonPackage rec {
@@ -22,7 +22,7 @@ final: prev: {
 
           postPatch = ''
             for f in ${haskell-package}/include/*.h; do
-              ln --symbolic "$f" ising_glass_annealer/
+              ln --symbolic -v "$f" ising_glass_annealer/
             done
           '';
 
